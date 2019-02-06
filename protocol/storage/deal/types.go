@@ -1,21 +1,21 @@
-package storage
+package deal
 
 import (
-	"github.com/filecoin-project/go-filecoin/actor/builtin/paymentbroker"
 	"gx/ipfs/QmR8BauakNcBa3RbE4nbQu76PDiJgoQgz8AJdhJuiU4TAw/go-cid"
 	cbor "gx/ipfs/QmcZLyosDwMKdB6NLRsiss9HXzDPhVhhRtPy67JFKTDQDX/go-ipld-cbor"
 
+	"github.com/filecoin-project/go-filecoin/actor/builtin/paymentbroker"
 	"github.com/filecoin-project/go-filecoin/address"
 	"github.com/filecoin-project/go-filecoin/types"
 )
 
 func init() {
 	cbor.RegisterCborType(PaymentInfo{})
-	cbor.RegisterCborType(DealProposal{})
-	cbor.RegisterCborType(SignedDealProposal{})
-	cbor.RegisterCborType(DealResponse{})
+	cbor.RegisterCborType(Proposal{})
+	cbor.RegisterCborType(Response{})
+    cbor.RegisterCborType(SignedDealProposal{})
 	cbor.RegisterCborType(ProofInfo{})
-	cbor.RegisterCborType(queryRequest{})
+	cbor.RegisterCborType(QueryRequest{})
 }
 
 // PaymentInfo contains all the payment related information for a storage deal.
@@ -40,8 +40,8 @@ type PaymentInfo struct {
 	Vouchers []*paymentbroker.PaymentVoucher
 }
 
-// DealProposal is the information sent over the wire, when a client proposes a deal to a miner.
-type DealProposal struct {
+// Proposal is the information sent over the wire, when a client proposes a deal to a miner.
+type Proposal struct {
 	// PieceRef is the cid of the piece being stored
 	PieceRef cid.Cid
 
@@ -97,10 +97,10 @@ type SignedDealProposal struct {
 	Signature types.Signature
 }
 
-// DealResponse is the information sent over the wire, when a miner responds to a client.
-type DealResponse struct {
+// Response is the information sent over the wire, when a miner responds to a client.
+type Response struct {
 	// State is the current state of this deal
-	State DealState
+	State State
 
 	// Message is an optional message to add context to any given response
 	Message string
@@ -116,6 +116,16 @@ type DealResponse struct {
 	Signature types.Signature
 }
 
+// ClientDatastorePrefix is the datastore prefix for client deals
+const ClientDatastorePrefix = "client"
+
+// Deal is a storage deal struct
+type Deal struct {
+	Miner    address.Address
+	Proposal *Proposal
+	Response *Response
+}
+
 // ProofInfo contains the details about a seal proof, that the client needs to know to verify that his deal was posted on chain.
 // TODO: finalize parameters
 type ProofInfo struct {
@@ -124,6 +134,7 @@ type ProofInfo struct {
 	CommD    []byte
 }
 
-type queryRequest struct {
+// QueryRequest is used for making protocol api requests for deals
+type QueryRequest struct {
 	Cid cid.Cid
 }

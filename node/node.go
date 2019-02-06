@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/filecoin-project/go-filecoin/plumbing/dls"
 	"math/big"
 	"os"
 	"sync"
@@ -403,15 +404,16 @@ func (nc *Config) Build(ctx context.Context) (*Node, error) {
 
 	PorcelainAPI := porcelain.New(plumbing.New(&plumbing.APIDeps{
 		Chain:        chainReader,
-		Config:       cfg.NewConfig(nc.Repo),
+		Config:     cfg.NewConfig(nc.Repo),
 		MsgPool:      msgPool,
 		MsgPreviewer: msg.NewPreviewer(fcWallet, chainReader, &cstOffline, bs),
-		MsgQueryer:   msg.NewQueryer(nc.Repo, fcWallet, chainReader, &cstOffline, bs),
-		MsgSender:    msg.NewSender(nc.Repo, fcWallet, chainReader, msgPool, fsub.Publish),
-		MsgWaiter:    msg.NewWaiter(chainReader, bs, &cstOffline),
+		MsgQueryer: msg.NewQueryer(nc.Repo, fcWallet, chainReader, &cstOffline, bs),
+		MsgSender:  msg.NewSender(nc.Repo, fcWallet, chainReader, msgPool, fsub.Publish),
+		MsgWaiter:  msg.NewWaiter(chainReader, bs, &cstOffline),
 		Network:      ntwk.New(peerHost, pubsub.NewPublisher(fsub), pubsub.NewSubscriber(fsub)),
 		SigGetter:    mthdsig.NewGetter(chainReader),
 		Wallet:       fcWallet,
+		Deals:      dls.New(nc.Repo.DealsDatastore()),
 	}))
 
 	nd := &Node{
@@ -950,7 +952,7 @@ func initStorageMinerForNode(ctx context.Context, node *Node) (*storage.Miner, e
 		return nil, errors.Wrap(err, "no mining owner available, skipping storage miner setup")
 	}
 
-	miner, err := storage.NewMiner(ctx, minerAddr, miningOwnerAddr, node, node.Repo.DealsDatastore(), node.PorcelainAPI)
+	miner, err := storage.NewMiner(minerAddr, miningOwnerAddr, node, node.Repo.DealsDatastore(), node.PorcelainAPI)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to instantiate storage miner")
 	}

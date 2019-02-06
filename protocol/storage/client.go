@@ -23,6 +23,7 @@ import (
 	"github.com/filecoin-project/go-filecoin/address"
 	cbu "github.com/filecoin-project/go-filecoin/cborutil"
 	"github.com/filecoin-project/go-filecoin/porcelain"
+	"github.com/filecoin-project/go-filecoin/protocol/storage/deal"
 	"github.com/filecoin-project/go-filecoin/repo"
 	"github.com/filecoin-project/go-filecoin/types"
 	"github.com/filecoin-project/go-filecoin/util/convert"
@@ -30,15 +31,13 @@ import (
 
 const (
 	_ = iota
-	// ErrDupicateDeal indicates that a deal being proposed is a duplicate of an existing deal
-	ErrDupicateDeal
+	// ErrDuplicateDeal indicates that a deal being proposed is a duplicate of an existing deal
+	ErrDuplicateDeal
 )
-
-const clientDatastorePrefix = "client"
 
 // Errors map error codes to messages
 var Errors = map[uint8]error{
-	ErrDupicateDeal: errors.New("proposal is a duplicate of existing deal; if you would like to create a duplicate, add the --allow-duplicates flag"),
+	ErrDuplicateDeal: errors.New("proposal is a duplicate of existing deal; if you would like to create a duplicate, add the --allow-duplicates flag"),
 }
 
 const (
@@ -68,6 +67,8 @@ type clientPorcelainAPI interface {
 	MinerGetAsk(ctx context.Context, minerAddr address.Address, askID uint64) (miner.Ask, error)
 	MinerGetOwnerAddress(ctx context.Context, minerAddr address.Address) (address.Address, error)
 	MinerGetPeerID(ctx context.Context, minerAddr address.Address) (peer.ID, error)
+	DealsLs() (<-chan *deal.Deal, <-chan error)
+	DealByCid(cid.Cid) (*deal.Deal, error)
 	types.Signer
 }
 
@@ -79,7 +80,7 @@ type clientDeal struct {
 
 // Client is used to make deals directly with storage miners.
 type Client struct {
-	deals   map[cid.Cid]*clientDeal
+	deals   map[cid.Cid]*deal.Deal
 	dealsDs repo.Datastore
 	dealsLk sync.Mutex
 
@@ -88,13 +89,13 @@ type Client struct {
 }
 
 func init() {
-	cbor.RegisterCborType(clientDeal{})
+	cbor.RegisterCborType(deal.Deal{})
 }
 
 // NewClient creates a new storage client.
 func NewClient(nd clientNode, api clientPorcelainAPI, dealsDs repo.Datastore) (*Client, error) {
 	smc := &Client{
-		deals:   make(map[cid.Cid]*clientDeal),
+		deals:   make(map[cid.Cid]*deal.Deal),
 		node:    nd,
 		api:     api,
 		dealsDs: dealsDs,
@@ -106,7 +107,7 @@ func NewClient(nd clientNode, api clientPorcelainAPI, dealsDs repo.Datastore) (*
 }
 
 // ProposeDeal is
-func (smc *Client) ProposeDeal(ctx context.Context, miner address.Address, data cid.Cid, askID uint64, duration uint64, allowDuplicates bool) (*DealResponse, error) {
+func (smc *Client) ProposeDeal(ctx context.Context, miner address.Address, data cid.Cid, askID uint64, duration uint64, allowDuplicates bool) (*deal.Response, error) {
 	ctx, cancel := context.WithTimeout(ctx, 4*smc.node.GetBlockTime())
 	defer cancel()
 	size, err := smc.node.GetFileSize(ctx, data)
@@ -137,7 +138,7 @@ func (smc *Client) ProposeDeal(ctx context.Context, miner address.Address, data 
 
 	totalPrice := price.MulBigInt(big.NewInt(int64(size * duration)))
 
-	proposal := &DealProposal{
+	proposal := &deal.Proposal{
 		PieceRef:     data,
 		Size:         types.NewBytesAmount(size),
 		TotalPrice:   totalPrice,
@@ -181,7 +182,7 @@ func (smc *Client) ProposeDeal(ctx context.Context, miner address.Address, data 
 		return nil, err
 	}
 
-	var response DealResponse
+	var response deal.Response
 	err = smc.node.MakeProtocolRequest(ctx, makeDealProtocol, pid, signedProposal, &response)
 	if err != nil {
 		return nil, errors.Wrap(err, "error sending proposal")
@@ -200,7 +201,7 @@ func (smc *Client) ProposeDeal(ctx context.Context, miner address.Address, data 
 	return &response, nil
 }
 
-func (smc *Client) recordResponse(resp *DealResponse, miner address.Address, p *DealProposal) error {
+func (smc *Client) recordResponse(resp *deal.Response, miner address.Address, p *deal.Proposal) error {
 	proposalCid, err := convert.ToCid(p)
 	if err != nil {
 		return errors.New("failed to get cid of proposal")
@@ -215,7 +216,7 @@ func (smc *Client) recordResponse(resp *DealResponse, miner address.Address, p *
 		return fmt.Errorf("deal [%s] is already in progress", proposalCid.String())
 	}
 
-	smc.deals[proposalCid] = &clientDeal{
+	smc.deals[proposalCid] = &deal.Deal{
 		Miner:    miner,
 		Proposal: p,
 		Response: resp,
@@ -223,13 +224,13 @@ func (smc *Client) recordResponse(resp *DealResponse, miner address.Address, p *
 	return smc.saveDeal(proposalCid)
 }
 
-func (smc *Client) checkDealResponse(ctx context.Context, resp *DealResponse) error {
+func (smc *Client) checkDealResponse(ctx context.Context, resp *deal.Response) error {
 	switch resp.State {
-	case Rejected:
+	case deal.Rejected:
 		return fmt.Errorf("deal rejected: %s", resp.Message)
-	case Failed:
+	case deal.Failed:
 		return fmt.Errorf("deal failed: %s", resp.Message)
-	case Accepted:
+	case deal.Accepted:
 		return nil
 	default:
 		return fmt.Errorf("invalid proposal response: %s", resp.State)
@@ -248,7 +249,7 @@ func (smc *Client) minerForProposal(c cid.Cid) (address.Address, error) {
 }
 
 // QueryDeal queries an in-progress proposal.
-func (smc *Client) QueryDeal(ctx context.Context, proposalCid cid.Cid) (*DealResponse, error) {
+func (smc *Client) QueryDeal(ctx context.Context, proposalCid cid.Cid) (*deal.Response, error) {
 	mineraddr, err := smc.minerForProposal(proposalCid)
 	if err != nil {
 		return nil, err
@@ -259,8 +260,8 @@ func (smc *Client) QueryDeal(ctx context.Context, proposalCid cid.Cid) (*DealRes
 		return nil, err
 	}
 
-	q := queryRequest{proposalCid}
-	var resp DealResponse
+	q := deal.QueryRequest{Cid: proposalCid}
+	var resp deal.Response
 	err = smc.node.MakeProtocolRequest(ctx, queryDealProtocol, minerpid, q, &resp)
 	if err != nil {
 		return nil, errors.Wrap(err, "error querying deal")
@@ -270,37 +271,29 @@ func (smc *Client) QueryDeal(ctx context.Context, proposalCid cid.Cid) (*DealRes
 }
 
 func (smc *Client) loadDeals() error {
-	res, err := smc.dealsDs.Query(query.Query{
-		Prefix: "/" + clientDatastorePrefix,
-	})
-	if err != nil {
-		return errors.Wrap(err, "failed to query deals from datastore")
+	smc.deals = make(map[cid.Cid]*deal.Deal)
+
+	deals, doneOrError := smc.api.DealsLs()
+	select {
+	case storageDeal := <-deals:
+		smc.deals[storageDeal.Response.ProposalCid] = storageDeal
+	case errOrNil := <-doneOrError:
+		return errOrNil
 	}
-
-	smc.deals = make(map[cid.Cid]*clientDeal)
-
-	for entry := range res.Next() {
-		var deal clientDeal
-		if err := cbor.DecodeInto(entry.Value, &deal); err != nil {
-			return errors.Wrap(err, "failed to unmarshal deals from datastore")
-		}
-		smc.deals[deal.Response.ProposalCid] = &deal
-	}
-
 	return nil
 }
 
 func (smc *Client) saveDeal(cid cid.Cid) error {
-	deal, ok := smc.deals[cid]
+	storageDeal, ok := smc.deals[cid]
 	if !ok {
 		return errors.Errorf("Could not find client deal with cid: %s", cid.String())
 	}
-	datum, err := cbor.DumpObject(deal)
+	datum, err := cbor.DumpObject(storageDeal)
 	if err != nil {
 		return errors.Wrap(err, "could not marshal storageDeal")
 	}
 
-	key := datastore.KeyWithNamespaces([]string{clientDatastorePrefix, cid.String()})
+	key := datastore.KeyWithNamespaces([]string{deal.ClientDatastorePrefix, cid.String()})
 	err = smc.dealsDs.Put(key, datum)
 	if err != nil {
 		return errors.Wrap(err, "could not save client deal to disk, in-memory deals differ from persisted deals!")
@@ -321,38 +314,25 @@ func (smc *Client) isMaybeDupDeal(p *DealProposal) bool {
 
 // LoadVouchersForDeal loads vouchers from disk for a given deal
 func (smc *Client) LoadVouchersForDeal(dealCid cid.Cid) ([]*paymentbroker.PaymentVoucher, error) {
-	queryResults, err := smc.dealsDs.Query(query.Query{Prefix: "/" + clientDatastorePrefix})
+	storageDeal, err := smc.api.DealByCid(dealCid)
 	if err != nil {
-		return []*paymentbroker.PaymentVoucher{}, errors.Wrap(err, "failed to query vouchers from datastore")
+		return []*paymentbroker.PaymentVoucher{}, err
 	}
-
-	var results []*paymentbroker.PaymentVoucher
-
-	for entry := range queryResults.Next() {
-		var deal clientDeal
-		if err := cbor.DecodeInto(entry.Value, &deal); err != nil {
-			return results, errors.Wrap(err, "failed to unmarshal deals from datastore")
-		}
-		if deal.Response.ProposalCid == dealCid {
-			results = append(results, deal.Proposal.Payment.Vouchers...)
-		}
-	}
-
-	return results, nil
+	return storageDeal.Proposal.Payment.Vouchers, nil
 }
 
 // ClientNodeImpl implements the client node interface
 type ClientNodeImpl struct {
-	dserv     ipld.DAGService
-	host      host.Host
+	dserv ipld.DAGService
+	host  host.Host
 	blockTime time.Duration
 }
 
 // NewClientNodeImpl constructs a ClientNodeImpl
 func NewClientNodeImpl(ds ipld.DAGService, host host.Host, bt time.Duration) *ClientNodeImpl {
 	return &ClientNodeImpl{
-		dserv:     ds,
-		host:      host,
+		dserv: ds,
+		host:  host,
 		blockTime: bt,
 	}
 }

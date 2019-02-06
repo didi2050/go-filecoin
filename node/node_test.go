@@ -175,7 +175,7 @@ func TestNodeStartMining(t *testing.T) {
 
 	seed.GiveKey(t, minerNode, 0)
 	mineraddr, minerOwnerAddr := seed.GiveMiner(t, minerNode, 0)
-	_, err := storage.NewMiner(ctx, mineraddr, minerOwnerAddr, minerNode, minerNode.Repo.DealsDatastore(), porcelainAPI)
+	_, err := storage.NewMiner(mineraddr, minerOwnerAddr, minerNode, minerNode.Repo.DealsDatastore(), porcelainAPI)
 	assert.NoError(err)
 
 	assert.NoError(minerNode.Start(ctx))

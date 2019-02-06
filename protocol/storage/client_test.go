@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"github.com/filecoin-project/go-filecoin/protocol/storage/deal"
 	"math/big"
 	"testing"
 	"time"
@@ -41,8 +42,8 @@ func TestProposeDeal(t *testing.T) {
 
 		pcid, err := convert.ToCid(p.DealProposal)
 		require.NoError(err)
-		return &DealResponse{
-			State:       Accepted,
+		return &deal.Response{
+			State:       deal.Accepted,
 			Message:     "OK",
 			ProposalCid: pcid,
 		}, nil
@@ -107,17 +108,17 @@ func TestProposeDeal(t *testing.T) {
 	t.Run("and sends proposal and stores response", func(t *testing.T) {
 		assert.NotNil(dealResponse)
 
-		assert.Equal(Accepted, dealResponse.State)
+		assert.Equal(deal.Accepted, dealResponse.State)
 
 		res, err := testRepo.DealsDs.Query(query.Query{
-			Prefix: "/" + clientDatastorePrefix,
+			Prefix: "/" + deal.ClientDatastorePrefix,
 		})
 		require.NoError(err)
 
 		// expect one entry to be the response
-		var response *DealResponse
+		var response *deal.Response
 		for entry := range res.Next() {
-			var deal clientDeal
+			var deal deal.Deal
 			require.Equal("/client/"+dealResponse.ProposalCid.String(), entry.Key)
 			require.NoError(cbor.DecodeInto(entry.Value, &deal))
 			response = deal.Response
@@ -225,11 +226,35 @@ func (tcn *testClientNode) GetFileSize(context.Context, cid.Cid) (uint64, error)
 }
 
 func (tcn *testClientNode) MakeProtocolRequest(ctx context.Context, protocol protocol.ID, peer peer.ID, request interface{}, response interface{}) error {
-	dealResponse := response.(*DealResponse)
+	dealResponse := response.(*deal.Response)
 	res, err := tcn.responder(request)
 	if err != nil {
 		return err
 	}
-	*dealResponse = *res.(*DealResponse)
+	*dealResponse = *res.(*deal.Response)
 	return nil
+}
+
+func (ctp *clientTestAPI) DealsLs() (<-chan *deal.Deal, <-chan error) {
+	out, errOrDoneC := make(chan *deal.Deal), make(chan error)
+	go func() {
+		defer close(out)
+		defer close(errOrDoneC)
+		out <- &deal.Deal{Miner: address.Address{}, Proposal: &deal.Proposal{}, Response: &deal.Response{
+			State:       deal.Accepted,
+			Message:     "OK",
+			ProposalCid: cid.Cid{},
+		}}
+		errOrDoneC <- nil
+	}()
+
+	return out, errOrDoneC
+}
+
+func (ctp *clientTestAPI) DealByCid(dealCid cid.Cid) (*deal.Deal, error) {
+	return &deal.Deal{Miner: address.Address{}, Proposal: &deal.Proposal{}, Response: &deal.Response{
+		State:       deal.Accepted,
+		Message:     "OK",
+		ProposalCid: cid.Cid{},
+	}}, nil
 }

@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"github.com/filecoin-project/go-filecoin/protocol/storage/deal"
 	"testing"
 
 	"gx/ipfs/QmR8BauakNcBa3RbE4nbQu76PDiJgoQgz8AJdhJuiU4TAw/go-cid"
@@ -22,6 +23,22 @@ var (
 	defaultAmountInc = uint64(1773)
 )
 
+func (mtp *minerTestPorcelain) DealsLs() (<-chan *deal.Deal, <-chan error) {
+	out, errOrDoneC := make(chan *deal.Deal), make(chan error)
+	go func() {
+		defer close(out)
+		defer close(errOrDoneC)
+		out <- &deal.Deal{Miner: address.Address{}, Proposal: &deal.Proposal{}, Response: &deal.Response{
+			State:       deal.Accepted,
+			Message:     "OK",
+			ProposalCid: cid.Cid{},
+		}}
+		errOrDoneC <- nil
+	}()
+
+	return out, errOrDoneC
+}
+
 func TestReceiveStorageProposal(t *testing.T) {
 	t.Run("Accepts proposals with sufficient TotalPrice", func(t *testing.T) {
 		assert := assert.New(t)
@@ -33,16 +50,16 @@ func TestReceiveStorageProposal(t *testing.T) {
 
 		porcelainAPI := newMinerTestPorcelain(require)
 		miner := Miner{
-			porcelainAPI:   porcelainAPI,
+			porcelainAPI: porcelainAPI,
 			minerOwnerAddr: porcelainAPI.targetAddress,
-			proposalAcceptor: func(ctx context.Context, m *Miner, p *DealProposal) (*DealResponse, error) {
+			proposalAcceptor: func(ctx context.Context, m *Miner, p *deal.Proposal) (*deal.Response, error) {
 				accepted = true
-				return &DealResponse{State: Accepted}, nil
+				return &deal.Response{State: Accepted}, nil
 			},
-			proposalRejector: func(ctx context.Context, m *Miner, p *DealProposal, reason string) (*DealResponse, error) {
+			proposalRejector: func(ctx context.Context, m *Miner, p *deal.Proposal, reason string) (*deal.Response, error) {
 				message = reason
 				rejected = true
-				return &DealResponse{State: Rejected, Message: reason}, nil
+				return &deal.Response{State: Rejected, Message: reason}, nil
 			},
 		}
 
