@@ -245,7 +245,7 @@ type blankValidator struct{}
 func (blankValidator) Validate(_ string, _ []byte) error        { return nil }
 func (blankValidator) Select(_ string, _ [][]byte) (int, error) { return 0, nil }
 
-// readGenesisCid is a helper function that queries the provided datastore forr
+// readGenesisCid is a helper function that queries the provided datastore for
 // an entry with the genesisKey cid, returning if found.
 func readGenesisCid(ds datastore.Datastore) (cid.Cid, error) {
 	bb, err := ds.Get(chain.GenesisKey)
