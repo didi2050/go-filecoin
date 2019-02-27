@@ -13,7 +13,7 @@ func init() {
 	cbor.RegisterCborType(PaymentInfo{})
 	cbor.RegisterCborType(Proposal{})
 	cbor.RegisterCborType(Response{})
-    cbor.RegisterCborType(SignedDealProposal{})
+	cbor.RegisterCborType(SignedDealProposal{})
 	cbor.RegisterCborType(ProofInfo{})
 	cbor.RegisterCborType(QueryRequest{})
 }
@@ -63,18 +63,18 @@ type Proposal struct {
 	Payment PaymentInfo
 }
 
-// Unmarshal a DealProposal from bytes.
-func (dp *DealProposal) Unmarshal(b []byte) error {
+// Unmarshal a Proposal from bytes.
+func (dp *Proposal) Unmarshal(b []byte) error {
 	return cbor.DecodeInto(b, dp)
 }
 
-// Marshal the DealProposal into bytes.
-func (dp *DealProposal) Marshal() ([]byte, error) {
+// Marshal the Proposal into bytes.
+func (dp *Proposal) Marshal() ([]byte, error) {
 	return cbor.DumpObject(dp)
 }
 
-// NewSignedProposal signs DealProposal with address `addr` and returns a SignedDealProposal.
-func (dp *DealProposal) NewSignedProposal(addr address.Address, signer types.Signer) (*SignedDealProposal, error) {
+// NewSignedProposal signs Proposal with address `addr` and returns a SignedDealProposal.
+func (dp *Proposal) NewSignedProposal(addr address.Address, signer types.Signer) (*SignedDealProposal, error) {
 	data, err := dp.Marshal()
 	if err != nil {
 		return nil, err
@@ -85,14 +85,14 @@ func (dp *DealProposal) NewSignedProposal(addr address.Address, signer types.Sig
 		return nil, err
 	}
 	return &SignedDealProposal{
-		DealProposal: *dp,
-		Signature:    sig,
+		Proposal:  *dp,
+		Signature: sig,
 	}, nil
 }
 
 // SignedDealProposal is a deal proposal signed by the proposing client
 type SignedDealProposal struct {
-	DealProposal
+	Proposal
 	// Signature is the signature of the client proposing the deal.
 	Signature types.Signature
 }

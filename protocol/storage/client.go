@@ -11,7 +11,6 @@ import (
 	ipld "gx/ipfs/QmRL22E4paat7ky7vx9MLpR97JHHbFPrg3ytFQw6qp1y1s/go-ipld-format"
 	"gx/ipfs/QmTu65MVbemtUxJEWgsTtzv9Zv9P8rvmqNA4eG9TrTRGYc/go-libp2p-peer"
 	"gx/ipfs/QmUadX5EcvrBmxAV9sE7wUWtWSqxns5K84qKJBixmcT1w9/go-datastore"
-	"gx/ipfs/QmUadX5EcvrBmxAV9sE7wUWtWSqxns5K84qKJBixmcT1w9/go-datastore/query"
 	"gx/ipfs/QmVmDhyTTUcQXFD1rRQ64fGLMSAoaQvNH3hwuaCFAPq2hy/errors"
 	"gx/ipfs/QmZNkThpqfVXs9GNbexPrfBbXSLNYeKrE7jwFM2oqHbyqN/go-libp2p-protocol"
 	"gx/ipfs/QmabLh8TrJ3emfAoQk5AbqbLTbMyj7XqumMFmAFxa9epo8/go-multistream"
@@ -70,12 +69,6 @@ type clientPorcelainAPI interface {
 	DealsLs() (<-chan *deal.Deal, <-chan error)
 	DealByCid(cid.Cid) (*deal.Deal, error)
 	types.Signer
-}
-
-type clientDeal struct {
-	Miner    address.Address
-	Proposal *DealProposal
-	Response *DealResponse
 }
 
 // Client is used to make deals directly with storage miners.
@@ -147,7 +140,7 @@ func (smc *Client) ProposeDeal(ctx context.Context, miner address.Address, data 
 	}
 
 	if smc.isMaybeDupDeal(proposal) && !allowDuplicates {
-		return nil, Errors[ErrDupicateDeal]
+		return nil, Errors[ErrDuplicateDeal]
 	}
 
 	// create payment information
@@ -194,7 +187,7 @@ func (smc *Client) ProposeDeal(ctx context.Context, miner address.Address, data 
 
 	// Note: currently the miner requests the data out of band
 
-	if err := smc.recordResponse(&response, miner, &signedProposal.DealProposal); err != nil {
+	if err := smc.recordResponse(&response, miner, proposal); err != nil {
 		return nil, errors.Wrap(err, "failed to track response")
 	}
 
@@ -301,7 +294,7 @@ func (smc *Client) saveDeal(cid cid.Cid) error {
 	return nil
 }
 
-func (smc *Client) isMaybeDupDeal(p *DealProposal) bool {
+func (smc *Client) isMaybeDupDeal(p *deal.Proposal) bool {
 	smc.dealsLk.Lock()
 	defer smc.dealsLk.Unlock()
 	for _, d := range smc.deals {
@@ -323,16 +316,16 @@ func (smc *Client) LoadVouchersForDeal(dealCid cid.Cid) ([]*paymentbroker.Paymen
 
 // ClientNodeImpl implements the client node interface
 type ClientNodeImpl struct {
-	dserv ipld.DAGService
-	host  host.Host
+	dserv     ipld.DAGService
+	host      host.Host
 	blockTime time.Duration
 }
 
 // NewClientNodeImpl constructs a ClientNodeImpl
 func NewClientNodeImpl(ds ipld.DAGService, host host.Host, bt time.Duration) *ClientNodeImpl {
 	return &ClientNodeImpl{
-		dserv: ds,
-		host:  host,
+		dserv:     ds,
+		host:      host,
 		blockTime: bt,
 	}
 }

@@ -17,7 +17,6 @@ import (
 	ipld "gx/ipfs/QmRL22E4paat7ky7vx9MLpR97JHHbFPrg3ytFQw6qp1y1s/go-ipld-format"
 	inet "gx/ipfs/QmTGxDz2CjBucFzPNTiWwzQmTWdrBnzqbqrMucDYMsjuPb/go-libp2p-net"
 	"gx/ipfs/QmUadX5EcvrBmxAV9sE7wUWtWSqxns5K84qKJBixmcT1w9/go-datastore"
-	"gx/ipfs/QmUadX5EcvrBmxAV9sE7wUWtWSqxns5K84qKJBixmcT1w9/go-datastore/query"
 	"gx/ipfs/QmVmDhyTTUcQXFD1rRQ64fGLMSAoaQvNH3hwuaCFAPq2hy/errors"
 	"gx/ipfs/QmZNkThpqfVXs9GNbexPrfBbXSLNYeKrE7jwFM2oqHbyqN/go-libp2p-protocol"
 	bserv "gx/ipfs/QmZsGVGCqMCNzHLNMB6q4F6yyvomqf1VxwhJwSfgo1NGaF/go-blockservice"
@@ -49,7 +48,6 @@ const submitPostGasLimit = 300
 
 const waitForPaymentChannelDuration = 2 * time.Minute
 
-const minerDatastorePrefix = "miner"
 const dealsAwatingSealDatastorePrefix = "dealsAwaitingSeal"
 
 // Miner represents a storage miner.
@@ -110,7 +108,7 @@ func init() {
 }
 
 // NewMiner is
-func NewMiner(ctx context.Context, minerAddr, minerOwnerAddr address.Address, nd node, dealsDs repo.Datastore, porcelainAPI minerPorcelain) (*Miner, error) {
+func NewMiner(minerAddr, minerOwnerAddr address.Address, nd node, dealsDs repo.Datastore, porcelainAPI minerPorcelain) (*Miner, error) {
 	sm := &Miner{
 		minerAddr:        minerAddr,
 		minerOwnerAddr:   minerOwnerAddr,
@@ -141,7 +139,7 @@ func NewMiner(ctx context.Context, minerAddr, minerOwnerAddr address.Address, nd
 func (sm *Miner) handleMakeDeal(s inet.Stream) {
 	defer s.Close() // nolint: errcheck
 
-	var signedProposal SignedDealProposal
+	var signedProposal deal.SignedDealProposal
 	if err := cbu.NewMsgReader(s).ReadMsg(&signedProposal); err != nil {
 		log.Errorf("received invalid proposal: %s", err)
 		return
@@ -160,27 +158,27 @@ func (sm *Miner) handleMakeDeal(s inet.Stream) {
 }
 
 // receiveStorageProposal is the entry point for the miner storage protocol
-func (sm *Miner) receiveStorageProposal(ctx context.Context, sp *SignedDealProposal) (*DealResponse, error) {
+func (sm *Miner) receiveStorageProposal(ctx context.Context, sp *deal.SignedDealProposal) (*deal.Response, error) {
 	// Validate deal signature
-	bdp, err := sp.DealProposal.Marshal()
+	bdp, err := sp.Proposal.Marshal()
 	if err != nil {
 		return nil, err
 	}
-	p := &sp.DealProposal
+	p := &sp.Proposal
 
 	if !types.IsValidSignature(bdp, sp.Payment.Payer, sp.Signature) {
-		return sm.proposalRejector(ctx, sm, p, fmt.Sprint("invalid deal signature"))
+		return sm.proposalRejector(sm, p, fmt.Sprint("invalid deal signature"))
 	}
 
 	if err := sm.validateDealPayment(ctx, p); err != nil {
-		return sm.proposalRejector(ctx, sm, p, err.Error())
+		return sm.proposalRejector(sm, p, err.Error())
 	}
 
 	// Payment is valid, everything else checks out, let's accept this proposal
-	return sm.proposalAcceptor(ctx, sm, p)
+	return sm.proposalAcceptor(sm, p)
 }
 
-func (sm *Miner) validateDealPayment(ctx context.Context, p *DealProposal) error {
+func (sm *Miner) validateDealPayment(ctx context.Context, p *deal.Proposal) error {
 	// compute expected total price for deal (storage price * duration * bytes)
 	price, err := sm.getStoragePrice()
 	if err != nil {
@@ -285,7 +283,7 @@ func (sm *Miner) getStoragePrice() (*types.AttoFIL, error) {
 }
 
 // some parts of this should be porcelain
-func (sm *Miner) getPaymentChannel(ctx context.Context, p *DealProposal) (*paymentbroker.PaymentChannel, error) {
+func (sm *Miner) getPaymentChannel(ctx context.Context, p *deal.Proposal) (*paymentbroker.PaymentChannel, error) {
 	// wait for create channel message
 	messageCid := p.Payment.ChannelMsgCid
 

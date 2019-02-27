@@ -404,16 +404,16 @@ func (nc *Config) Build(ctx context.Context) (*Node, error) {
 
 	PorcelainAPI := porcelain.New(plumbing.New(&plumbing.APIDeps{
 		Chain:        chainReader,
-		Config:     cfg.NewConfig(nc.Repo),
+		Config:       cfg.NewConfig(nc.Repo),
 		MsgPool:      msgPool,
 		MsgPreviewer: msg.NewPreviewer(fcWallet, chainReader, &cstOffline, bs),
-		MsgQueryer: msg.NewQueryer(nc.Repo, fcWallet, chainReader, &cstOffline, bs),
-		MsgSender:  msg.NewSender(nc.Repo, fcWallet, chainReader, msgPool, fsub.Publish),
-		MsgWaiter:  msg.NewWaiter(chainReader, bs, &cstOffline),
+		MsgQueryer:   msg.NewQueryer(nc.Repo, fcWallet, chainReader, &cstOffline, bs),
+		MsgSender:    msg.NewSender(nc.Repo, fcWallet, chainReader, msgPool, fsub.Publish),
+		MsgWaiter:    msg.NewWaiter(chainReader, bs, &cstOffline),
 		Network:      ntwk.New(peerHost, pubsub.NewPublisher(fsub), pubsub.NewSubscriber(fsub)),
 		SigGetter:    mthdsig.NewGetter(chainReader),
 		Wallet:       fcWallet,
-		Deals:      dls.New(nc.Repo.DealsDatastore()),
+		Deals:        dls.New(nc.Repo.DealsDatastore()),
 	}))
 
 	nd := &Node{

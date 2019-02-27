@@ -17,8 +17,8 @@ import (
 	"github.com/filecoin-project/go-filecoin/plumbing/msg"
 	"github.com/filecoin-project/go-filecoin/plumbing/mthdsig"
 	"github.com/filecoin-project/go-filecoin/plumbing/ntwk"
-	"github.com/filecoin-project/go-filecoin/pubsub"
 	"github.com/filecoin-project/go-filecoin/protocol/storage/deal"
+	"github.com/filecoin-project/go-filecoin/pubsub"
 	"github.com/filecoin-project/go-filecoin/types"
 	"github.com/filecoin-project/go-filecoin/wallet"
 )
@@ -35,13 +35,13 @@ type API struct {
 	config       *cfg.Config
 	msgPool      *core.MessagePool
 	msgPreviewer *msg.Previewer
-	msgQueryer *msg.Queryer
-	msgSender  *msg.Sender
-	msgWaiter  *msg.Waiter
+	msgQueryer   *msg.Queryer
+	msgSender    *msg.Sender
+	msgWaiter    *msg.Waiter
 	network      *ntwk.Network
 	sigGetter    *mthdsig.Getter
 	wallet       *wallet.Wallet
-	deals      *dls.Lser
+	deals        *dls.Lser
 }
 
 // APIDeps contains all the API's dependencies
@@ -50,13 +50,13 @@ type APIDeps struct {
 	Config       *cfg.Config
 	MsgPool      *core.MessagePool
 	MsgPreviewer *msg.Previewer
-	MsgQueryer *msg.Queryer
-	MsgSender  *msg.Sender
-	MsgWaiter  *msg.Waiter
+	MsgQueryer   *msg.Queryer
+	MsgSender    *msg.Sender
+	MsgWaiter    *msg.Waiter
 	Network      *ntwk.Network
 	SigGetter    *mthdsig.Getter
 	Wallet       *wallet.Wallet
-	Deals      *dls.Lser
+	Deals        *dls.Lser
 }
 
 // New constructs a new instance of the API.
@@ -68,13 +68,13 @@ func New(deps *APIDeps) *API {
 		config:       deps.Config,
 		msgPool:      deps.MsgPool,
 		msgPreviewer: deps.MsgPreviewer,
-		msgQueryer: deps.MsgQueryer,
-		msgSender:  deps.MsgSender,
-		msgWaiter:  deps.MsgWaiter,
+		msgQueryer:   deps.MsgQueryer,
+		msgSender:    deps.MsgSender,
+		msgWaiter:    deps.MsgWaiter,
 		network:      deps.Network,
 		sigGetter:    deps.SigGetter,
 		wallet:       deps.Wallet,
-		deals:      deps.Deals,
+		deals:        deps.Deals,
 	}
 }
 

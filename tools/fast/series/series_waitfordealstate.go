@@ -5,7 +5,6 @@ import (
 	"github.com/filecoin-project/go-filecoin/protocol/storage/deal"
 	"time"
 
-	"github.com/filecoin-project/go-filecoin/protocol/storage"
 	"github.com/filecoin-project/go-filecoin/tools/fast"
 )
 

@@ -33,14 +33,14 @@ func TestProposeDeal(t *testing.T) {
 	addressCreator := address.NewForTestGetter()
 	cidCreator := types.NewCidForTestGetter()
 
-	var proposal *SignedDealProposal
+	var proposal *deal.SignedDealProposal
 
 	testNode := newTestClientNode(func(request interface{}) (interface{}, error) {
-		p, ok := request.(*SignedDealProposal)
+		p, ok := request.(deal.SignedDealProposal)
 		require.True(ok)
-		proposal = p
+		proposal = &p
 
-		pcid, err := convert.ToCid(p.DealProposal)
+		pcid, err := convert.ToCid(p.Proposal)
 		require.NoError(err)
 		return &deal.Response{
 			State:       deal.Accepted,
