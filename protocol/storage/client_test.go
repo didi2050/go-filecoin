@@ -36,9 +36,9 @@ func TestProposeDeal(t *testing.T) {
 	var proposal *deal.SignedDealProposal
 
 	testNode := newTestClientNode(func(request interface{}) (interface{}, error) {
-		p, ok := request.(deal.SignedDealProposal)
+		p, ok := request.(*deal.SignedDealProposal)
 		require.True(ok)
-		proposal = &p
+		proposal = p
 
 		pcid, err := convert.ToCid(p.Proposal)
 		require.NoError(err)
@@ -235,20 +235,14 @@ func (tcn *testClientNode) MakeProtocolRequest(ctx context.Context, protocol pro
 	return nil
 }
 
-func (ctp *clientTestAPI) DealsLs() (<-chan *deal.Deal, <-chan error) {
-	out, errOrDoneC := make(chan *deal.Deal), make(chan error)
-	go func() {
-		defer close(out)
-		defer close(errOrDoneC)
-		out <- &deal.Deal{Miner: address.Address{}, Proposal: &deal.Proposal{}, Response: &deal.Response{
-			State:       deal.Accepted,
-			Message:     "OK",
-			ProposalCid: cid.Cid{},
-		}}
-		errOrDoneC <- nil
-	}()
+func (ctp *clientTestAPI) DealsLs() ([]*deal.Deal, error) {
+	result := []*deal.Deal{{Miner: address.Address{}, Proposal: &deal.Proposal{}, Response: &deal.Response{
+		State:       deal.Accepted,
+		Message:     "OK",
+		ProposalCid: cid.Cid{},
+	}}}
 
-	return out, errOrDoneC
+	return result, nil
 }
 
 func (ctp *clientTestAPI) DealByCid(dealCid cid.Cid) (*deal.Deal, error) {

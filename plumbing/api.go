@@ -202,6 +202,6 @@ func (api *API) WalletNewAddress() (address.Address, error) {
 }
 
 // DealsLs returns a channel of all deals in the local datastore and a channel for errors or done
-func (api *API) DealsLs() (<-chan *deal.Deal, <-chan error) {
+func (api *API) DealsLs() ([]*deal.Deal, error) {
 	return api.deals.Ls()
 }

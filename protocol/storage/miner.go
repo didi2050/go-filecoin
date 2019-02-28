@@ -80,7 +80,7 @@ type minerPorcelain interface {
 	MessageSend(ctx context.Context, from, to address.Address, value *types.AttoFIL, gasPrice types.AttoFIL, gasLimit types.GasUnits, method string, params ...interface{}) (cid.Cid, error)
 	MessageQuery(ctx context.Context, optFrom, to address.Address, method string, params ...interface{}) ([][]byte, *exec.FunctionSignature, error)
 	MessageWait(ctx context.Context, msgCid cid.Cid, cb func(*types.Block, *types.SignedMessage, *types.MessageReceipt) error) error
-	DealsLs() (<-chan *deal.Deal, <-chan error)
+	DealsLs() ([]*deal.Deal, error)
 }
 
 // node is subset of node on which this protocol depends. These deps
@@ -838,12 +838,12 @@ func getFileSize(ctx context.Context, c cid.Cid, dserv ipld.DAGService) (uint64,
 func (sm *Miner) loadDeals() error {
 	sm.deals = make(map[cid.Cid]*deal.Deal)
 
-	deals, doneOrError := sm.porcelainAPI.DealsLs()
-	select {
-	case storageDeal := <-deals:
+	deals, err := sm.porcelainAPI.DealsLs()
+	if err != nil {
+		return err
+	}
+	for _, storageDeal := range deals {
 		sm.deals[storageDeal.Response.ProposalCid] = storageDeal
-	case errOrNil := <-doneOrError:
-		return errOrNil
 	}
 	return nil
 }

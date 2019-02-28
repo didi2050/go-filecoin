@@ -20,29 +20,20 @@ func New(dealsDatastore repo.Datastore) *Lser {
 }
 
 // Ls returns a channel of deals matching the given query.
-func (lser *Lser) Ls() (<-chan *deal.Deal, <-chan error) {
-	out := make(chan *deal.Deal)
-	errorOrDoneC := make(chan error, 1)
+func (lser *Lser) Ls() ([]*deal.Deal, error) {
+	deals := []*deal.Deal{}
 
-	go func() {
-		defer close(out)
-		defer close(errorOrDoneC)
-
-		results, err := lser.dealsDs.Query(query.Query{Prefix: "/" + deal.ClientDatastorePrefix})
-		if err != nil {
-			errorOrDoneC <- errors.Wrap(err, "failed to query deals from datastore")
-			return
+	results, err := lser.dealsDs.Query(query.Query{Prefix: "/" + deal.ClientDatastorePrefix})
+	if err != nil {
+		return deals, errors.Wrap(err, "failed to query deals from datastore")
+	}
+	for entry := range results.Next() {
+		var storageDeal deal.Deal
+		if err := cbor.DecodeInto(entry.Value, &storageDeal); err != nil {
+			return deals, errors.Wrap(err, "failed to unmarshal deals from datastore")
 		}
-		for entry := range results.Next() {
-			var storageDeal deal.Deal
-			if err := cbor.DecodeInto(entry.Value, &storageDeal); err != nil {
-				errorOrDoneC <- errors.Wrap(err, "failed to unmarshal deals from datastore")
-				return
-			}
-			out <- &storageDeal
-		}
-		errorOrDoneC <- nil
-	}()
+		deals = append(deals, &storageDeal)
+	}
 
-	return out, errorOrDoneC
+	return deals, nil
 }

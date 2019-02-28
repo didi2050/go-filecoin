@@ -66,7 +66,7 @@ type clientPorcelainAPI interface {
 	MinerGetAsk(ctx context.Context, minerAddr address.Address, askID uint64) (miner.Ask, error)
 	MinerGetOwnerAddress(ctx context.Context, minerAddr address.Address) (address.Address, error)
 	MinerGetPeerID(ctx context.Context, minerAddr address.Address) (peer.ID, error)
-	DealsLs() (<-chan *deal.Deal, <-chan error)
+	DealsLs() ([]*deal.Deal, error)
 	DealByCid(cid.Cid) (*deal.Deal, error)
 	types.Signer
 }
@@ -266,12 +266,12 @@ func (smc *Client) QueryDeal(ctx context.Context, proposalCid cid.Cid) (*deal.Re
 func (smc *Client) loadDeals() error {
 	smc.deals = make(map[cid.Cid]*deal.Deal)
 
-	deals, doneOrError := smc.api.DealsLs()
-	select {
-	case storageDeal := <-deals:
+	deals, err := smc.api.DealsLs()
+	if err != nil {
+		return err
+	}
+	for _, storageDeal := range deals {
 		smc.deals[storageDeal.Response.ProposalCid] = storageDeal
-	case errOrNil := <-doneOrError:
-		return errOrNil
 	}
 	return nil
 }

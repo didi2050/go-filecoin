@@ -11,19 +11,19 @@ import (
 
 type dlsPlumbing interface {
 	ChainLs(ctx context.Context) <-chan interface{}
-	DealsLs() (<-chan *deal.Deal, <-chan error)
+	DealsLs() ([]*deal.Deal, error)
 }
 
 // DealByCid returns a single deal matching a given cid or an error
 func DealByCid(api dlsPlumbing, dealCid cid.Cid) (*deal.Deal, error) {
-	dealsC, errorOrDoneC := api.DealsLs()
-	select {
-	case storageDeal := <-dealsC:
+	deals, err := api.DealsLs()
+	if err != nil {
+		return nil, err
+	}
+	for _, storageDeal := range deals {
 		if storageDeal.Response.ProposalCid == dealCid {
 			return storageDeal, nil
 		}
-	case errOrNil := <-errorOrDoneC:
-		return nil, errOrNil
 	}
 	return nil, fmt.Errorf("could not find deal with CID: %s", dealCid.String())
 }

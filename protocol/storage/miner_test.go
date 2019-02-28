@@ -23,22 +23,6 @@ var (
 	defaultAmountInc = uint64(1773)
 )
 
-func (mtp *minerTestPorcelain) DealsLs() (<-chan *deal.Deal, <-chan error) {
-	out, errOrDoneC := make(chan *deal.Deal), make(chan error)
-	go func() {
-		defer close(out)
-		defer close(errOrDoneC)
-		out <- &deal.Deal{Miner: address.Address{}, Proposal: &deal.Proposal{}, Response: &deal.Response{
-			State:       deal.Accepted,
-			Message:     "OK",
-			ProposalCid: cid.Cid{},
-		}}
-		errOrDoneC <- nil
-	}()
-
-	return out, errOrDoneC
-}
-
 func TestReceiveStorageProposal(t *testing.T) {
 	t.Run("Accepts proposals with sufficient TotalPrice", func(t *testing.T) {
 		assert := assert.New(t)
@@ -506,4 +490,22 @@ func testSignedDealProposal(porcelainAPI *minerTestPorcelain, vouchers []*paymen
 	signedProposal, err := proposal.NewSignedProposal(porcelainAPI.payerAddress, porcelainAPI.signer)
 	porcelainAPI.require.NoError(err)
 	return signedProposal
+}
+
+func (mtp *minerTestPorcelain) DealsLs() ([]*deal.Deal, error) {
+	result := []*deal.Deal{{Miner: address.Address{}, Proposal: &deal.Proposal{}, Response: &deal.Response{
+		State:       deal.Accepted,
+		Message:     "OK",
+		ProposalCid: cid.Cid{},
+	}}}
+
+	return result, nil
+}
+
+func (mtp *minerTestPorcelain) DealByCid(dealCid cid.Cid) (*deal.Deal, error) {
+	return &deal.Deal{Miner: address.Address{}, Proposal: &deal.Proposal{}, Response: &deal.Response{
+		State:       deal.Accepted,
+		Message:     "OK",
+		ProposalCid: cid.Cid{},
+	}}, nil
 }
