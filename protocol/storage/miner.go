@@ -81,6 +81,8 @@ type minerPorcelain interface {
 	MessageQuery(ctx context.Context, optFrom, to address.Address, method string, params ...interface{}) ([][]byte, *exec.FunctionSignature, error)
 	MessageWait(ctx context.Context, msgCid cid.Cid, cb func(*types.Block, *types.SignedMessage, *types.MessageReceipt) error) error
 	DealsLs() ([]*deal.Deal, error)
+	DealByCid(cid.Cid) (*deal.Deal, error)
+	PutDeal(*deal.Deal) error
 }
 
 // node is subset of node on which this protocol depends. These deps

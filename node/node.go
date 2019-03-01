@@ -491,7 +491,7 @@ func (node *Node) Start(ctx context.Context) error {
 
 	cni := storage.NewClientNodeImpl(dag.NewDAGService(node.BlockService()), node.Host(), node.GetBlockTime())
 	var err error
-	node.StorageMinerClient, err = storage.NewClient(cni, node.PorcelainAPI, node.Repo.DealsDatastore())
+	node.StorageMinerClient, err = storage.NewClient(cni, node.PorcelainAPI)
 	if err != nil {
 		return errors.Wrap(err, "Could not make new storage client")
 	}

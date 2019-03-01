@@ -205,3 +205,8 @@ func (api *API) WalletNewAddress() (address.Address, error) {
 func (api *API) DealsLs() ([]*deal.Deal, error) {
 	return api.deals.Ls()
 }
+
+// PutDeal puts a given deal in the datastore
+func (api *API) PutDeal(storageDeal *deal.Deal) error {
+	return api.deals.Put(storageDeal)
+}

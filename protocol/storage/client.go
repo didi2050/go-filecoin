@@ -10,7 +10,6 @@ import (
 	"gx/ipfs/QmR8BauakNcBa3RbE4nbQu76PDiJgoQgz8AJdhJuiU4TAw/go-cid"
 	ipld "gx/ipfs/QmRL22E4paat7ky7vx9MLpR97JHHbFPrg3ytFQw6qp1y1s/go-ipld-format"
 	"gx/ipfs/QmTu65MVbemtUxJEWgsTtzv9Zv9P8rvmqNA4eG9TrTRGYc/go-libp2p-peer"
-	"gx/ipfs/QmUadX5EcvrBmxAV9sE7wUWtWSqxns5K84qKJBixmcT1w9/go-datastore"
 	"gx/ipfs/QmVmDhyTTUcQXFD1rRQ64fGLMSAoaQvNH3hwuaCFAPq2hy/errors"
 	"gx/ipfs/QmZNkThpqfVXs9GNbexPrfBbXSLNYeKrE7jwFM2oqHbyqN/go-libp2p-protocol"
 	"gx/ipfs/QmabLh8TrJ3emfAoQk5AbqbLTbMyj7XqumMFmAFxa9epo8/go-multistream"
@@ -23,7 +22,6 @@ import (
 	cbu "github.com/filecoin-project/go-filecoin/cborutil"
 	"github.com/filecoin-project/go-filecoin/porcelain"
 	"github.com/filecoin-project/go-filecoin/protocol/storage/deal"
-	"github.com/filecoin-project/go-filecoin/repo"
 	"github.com/filecoin-project/go-filecoin/types"
 	"github.com/filecoin-project/go-filecoin/util/convert"
 )
@@ -68,13 +66,12 @@ type clientPorcelainAPI interface {
 	MinerGetPeerID(ctx context.Context, minerAddr address.Address) (peer.ID, error)
 	DealsLs() ([]*deal.Deal, error)
 	DealByCid(cid.Cid) (*deal.Deal, error)
+	PutDeal(*deal.Deal) error
 	types.Signer
 }
 
 // Client is used to make deals directly with storage miners.
 type Client struct {
-	deals   map[cid.Cid]*deal.Deal
-	dealsDs repo.Datastore
 	dealsLk sync.Mutex
 
 	node clientNode
@@ -86,15 +83,10 @@ func init() {
 }
 
 // NewClient creates a new storage client.
-func NewClient(nd clientNode, api clientPorcelainAPI, dealsDs repo.Datastore) (*Client, error) {
+func NewClient(nd clientNode, api clientPorcelainAPI) (*Client, error) {
 	smc := &Client{
-		deals:   make(map[cid.Cid]*deal.Deal),
-		node:    nd,
-		api:     api,
-		dealsDs: dealsDs,
-	}
-	if err := smc.loadDeals(); err != nil {
-		return nil, errors.Wrap(err, "failed to load client deals")
+		node: nd,
+		api:  api,
 	}
 	return smc, nil
 }
@@ -204,17 +196,16 @@ func (smc *Client) recordResponse(resp *deal.Response, miner address.Address, p 
 	}
 	smc.dealsLk.Lock()
 	defer smc.dealsLk.Unlock()
-	_, ok := smc.deals[proposalCid]
-	if ok {
+	storageDeal, err := smc.api.DealByCid(proposalCid)
+	if storageDeal != nil {
 		return fmt.Errorf("deal [%s] is already in progress", proposalCid.String())
 	}
 
-	smc.deals[proposalCid] = &deal.Deal{
+	return smc.api.PutDeal(&deal.Deal{
 		Miner:    miner,
 		Proposal: p,
 		Response: resp,
-	}
-	return smc.saveDeal(proposalCid)
+	})
 }
 
 func (smc *Client) checkDealResponse(ctx context.Context, resp *deal.Response) error {
@@ -233,12 +224,12 @@ func (smc *Client) checkDealResponse(ctx context.Context, resp *deal.Response) e
 func (smc *Client) minerForProposal(c cid.Cid) (address.Address, error) {
 	smc.dealsLk.Lock()
 	defer smc.dealsLk.Unlock()
-	st, ok := smc.deals[c]
-	if !ok {
+	storageDeal, _ := smc.api.DealByCid(c)
+	if storageDeal == nil {
 		return address.Address{}, fmt.Errorf("no such proposal by cid: %s", c)
 	}
 
-	return st.Miner, nil
+	return storageDeal.Miner, nil
 }
 
 // QueryDeal queries an in-progress proposal.
@@ -263,41 +254,14 @@ func (smc *Client) QueryDeal(ctx context.Context, proposalCid cid.Cid) (*deal.Re
 	return &resp, nil
 }
 
-func (smc *Client) loadDeals() error {
-	smc.deals = make(map[cid.Cid]*deal.Deal)
-
-	deals, err := smc.api.DealsLs()
-	if err != nil {
-		return err
-	}
-	for _, storageDeal := range deals {
-		smc.deals[storageDeal.Response.ProposalCid] = storageDeal
-	}
-	return nil
-}
-
-func (smc *Client) saveDeal(cid cid.Cid) error {
-	storageDeal, ok := smc.deals[cid]
-	if !ok {
-		return errors.Errorf("Could not find client deal with cid: %s", cid.String())
-	}
-	datum, err := cbor.DumpObject(storageDeal)
-	if err != nil {
-		return errors.Wrap(err, "could not marshal storageDeal")
-	}
-
-	key := datastore.KeyWithNamespaces([]string{deal.ClientDatastorePrefix, cid.String()})
-	err = smc.dealsDs.Put(key, datum)
-	if err != nil {
-		return errors.Wrap(err, "could not save client deal to disk, in-memory deals differ from persisted deals!")
-	}
-	return nil
-}
-
 func (smc *Client) isMaybeDupDeal(p *deal.Proposal) bool {
 	smc.dealsLk.Lock()
 	defer smc.dealsLk.Unlock()
-	for _, d := range smc.deals {
+	deals, err := smc.api.DealsLs()
+	if err != nil {
+		return false
+	}
+	for _, d := range deals {
 		if d.Miner == p.MinerAddress && d.Proposal.PieceRef.Equals(p.PieceRef) {
 			return true
 		}

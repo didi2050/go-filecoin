@@ -1,7 +1,6 @@
 package porcelain
 
 import (
-	"context"
 	"fmt"
 
 	"gx/ipfs/QmR8BauakNcBa3RbE4nbQu76PDiJgoQgz8AJdhJuiU4TAw/go-cid"
@@ -10,7 +9,6 @@ import (
 )
 
 type dlsPlumbing interface {
-	ChainLs(ctx context.Context) <-chan interface{}
 	DealsLs() ([]*deal.Deal, error)
 }
 

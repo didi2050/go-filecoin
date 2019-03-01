@@ -1,6 +1,7 @@
 package dls
 
 import (
+	"gx/ipfs/QmUadX5EcvrBmxAV9sE7wUWtWSqxns5K84qKJBixmcT1w9/go-datastore"
 	"gx/ipfs/QmUadX5EcvrBmxAV9sE7wUWtWSqxns5K84qKJBixmcT1w9/go-datastore/query"
 	"gx/ipfs/QmVmDhyTTUcQXFD1rRQ64fGLMSAoaQvNH3hwuaCFAPq2hy/errors"
 	cbor "gx/ipfs/QmcZLyosDwMKdB6NLRsiss9HXzDPhVhhRtPy67JFKTDQDX/go-ipld-cbor"
@@ -19,7 +20,7 @@ func New(dealsDatastore repo.Datastore) *Lser {
 	return &Lser{dealsDs: dealsDatastore}
 }
 
-// Ls returns a channel of deals matching the given query.
+// Ls returns a slice of deals matching the given query, with a possible error
 func (lser *Lser) Ls() ([]*deal.Deal, error) {
 	deals := []*deal.Deal{}
 
@@ -36,4 +37,21 @@ func (lser *Lser) Ls() ([]*deal.Deal, error) {
 	}
 
 	return deals, nil
+}
+
+// Put puts the deal into the datastore
+func (lser *Lser) Put(storageDeal *deal.Deal) error {
+	proposalCid := storageDeal.Response.ProposalCid
+	datum, err := cbor.DumpObject(storageDeal)
+	if err != nil {
+		return errors.Wrap(err, "could not marshal storageDeal")
+	}
+
+	key := datastore.KeyWithNamespaces([]string{deal.ClientDatastorePrefix, proposalCid.String()})
+	err = lser.dealsDs.Put(key, datum)
+	if err != nil {
+		return errors.Wrap(err, "could not save client deal to disk, in-memory deals differ from persisted deals!")
+	}
+
+	return nil
 }

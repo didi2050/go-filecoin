@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"fmt"
 	"github.com/filecoin-project/go-filecoin/protocol/storage/deal"
 	"math/big"
 	"testing"
@@ -246,9 +247,16 @@ func (ctp *clientTestAPI) DealsLs() ([]*deal.Deal, error) {
 }
 
 func (ctp *clientTestAPI) DealByCid(dealCid cid.Cid) (*deal.Deal, error) {
-	return &deal.Deal{Miner: address.Address{}, Proposal: &deal.Proposal{}, Response: &deal.Response{
-		State:       deal.Accepted,
-		Message:     "OK",
-		ProposalCid: cid.Cid{},
-	}}, nil
+	if dealCid == types.SomeCid() {
+		return &deal.Deal{Miner: address.Address{}, Proposal: &deal.Proposal{}, Response: &deal.Response{
+			State:       deal.Accepted,
+			Message:     "OK",
+			ProposalCid: cid.Cid{},
+		}}, nil
+	}
+	return nil, fmt.Errorf("deal with cid %s not found", dealCid.String())
+}
+
+func (ctp *clientTestAPI) PutDeal(storageDeal *deal.Deal) error {
+	return nil
 }
