@@ -125,6 +125,16 @@ func (api *API) BlockGet(ctx context.Context, id cid.Cid) (*types.Block, error) 
 	return api.chain.GetBlock(ctx, id)
 }
 
+// DealsLs a slice of all storagedeals in the local datastore and possibly an error
+func (api *API) DealsLs() ([]*storagedeal.Deal, error) {
+	return api.storagedeals.Ls()
+}
+
+// DealPut puts a given deal in the datastore
+func (api *API) DealPut(storageDeal *storagedeal.Deal) error {
+	return api.storagedeals.Put(storageDeal)
+}
+
 // MessagePoolPending lists messages un-mined in the pool
 func (api *API) MessagePoolPending() []*types.SignedMessage {
 	return api.msgPool.Pending()
@@ -199,14 +209,4 @@ func (api *API) WalletFind(address address.Address) (wallet.Backend, error) {
 // WalletNewAddress generates a new wallet address
 func (api *API) WalletNewAddress() (address.Address, error) {
 	return wallet.NewAddress(api.wallet)
-}
-
-// DealsLs a slice of all storagedeals in the local datastore and possibly an error
-func (api *API) DealsLs() ([]*storagedeal.Deal, error) {
-	return api.storagedeals.Ls()
-}
-
-// DealPut puts a given deal in the datastore
-func (api *API) DealPut(storageDeal *storagedeal.Deal) error {
-	return api.deals.Put(storageDeal)
 }
