@@ -17,10 +17,10 @@ import (
 	"github.com/filecoin-project/go-filecoin/mining"
 	"github.com/filecoin-project/go-filecoin/plumbing"
 	pbConfig "github.com/filecoin-project/go-filecoin/plumbing/cfg"
-	"github.com/filecoin-project/go-filecoin/plumbing/dls"
 	"github.com/filecoin-project/go-filecoin/plumbing/msg"
 	"github.com/filecoin-project/go-filecoin/plumbing/mthdsig"
 	"github.com/filecoin-project/go-filecoin/plumbing/ntwk"
+	"github.com/filecoin-project/go-filecoin/plumbing/strgdls"
 	"github.com/filecoin-project/go-filecoin/porcelain"
 	"github.com/filecoin-project/go-filecoin/proofs"
 	"github.com/filecoin-project/go-filecoin/protocol/storage"
@@ -171,7 +171,7 @@ func TestNodeStartMining(t *testing.T) {
 		Network:      ntwk.New(minerNode.Host(), nil, nil),
 		SigGetter:    mthdsig.NewGetter(minerNode.ChainReader),
 		Wallet:       wallet.New(walletBackend),
-		Deals:        dls.New(minerNode.Repo.DealsDatastore()),
+		Deals:        strgdls.New(minerNode.Repo.DealsDatastore()),
 	})
 	porcelainAPI := porcelain.New(plumbingAPI)
 

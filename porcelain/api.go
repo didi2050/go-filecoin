@@ -10,7 +10,7 @@ import (
 	minerActor "github.com/filecoin-project/go-filecoin/actor/builtin/miner"
 	"github.com/filecoin-project/go-filecoin/address"
 	"github.com/filecoin-project/go-filecoin/plumbing"
-	"github.com/filecoin-project/go-filecoin/protocol/storage/deal"
+	"github.com/filecoin-project/go-filecoin/protocol/storage/storagedeal"
 	"github.com/filecoin-project/go-filecoin/types"
 )
 
@@ -50,6 +50,11 @@ func (a *API) ChainBlockHeight(ctx context.Context) (*types.BlockHeight, error) 
 // CreatePayments establishes a payment channel and create multiple payments against it
 func (a *API) CreatePayments(ctx context.Context, config CreatePaymentsParams) (*CreatePaymentsReturn, error) {
 	return CreatePayments(ctx, a, config)
+}
+
+// DealGet returns a single deal matching a given cid or an error
+func (a *API) DealGet(proposalCid cid.Cid) *storagedeal.Deal {
+	return DealGet(a, proposalCid)
 }
 
 // MessagePoolWait waits for the message pool to have at least messageCount unmined messages.
@@ -136,9 +141,4 @@ func (a *API) GetAndMaybeSetDefaultSenderAddress() (address.Address, error) {
 // WalletBalance returns the current balance of the given wallet address.
 func (a *API) WalletBalance(ctx context.Context, address address.Address) (*types.AttoFIL, error) {
 	return WalletBalance(ctx, a, address)
-}
-
-// DealByCid returns a single deal matching a given cid or an error
-func (a *API) DealByCid(dealCid cid.Cid) (*deal.Deal, error) {
-	return DealByCid(a, dealCid)
 }

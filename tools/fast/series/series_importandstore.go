@@ -2,7 +2,7 @@ package series
 
 import (
 	"context"
-	"github.com/filecoin-project/go-filecoin/protocol/storage/deal"
+	"github.com/filecoin-project/go-filecoin/protocol/storage/storagedeal"
 
 	"gx/ipfs/QmQmhotPUzVrMEWNK3x1R5jQ5ZHWyL7tVUrmRPjrBrvyCb/go-ipfs-files"
 	"gx/ipfs/QmR8BauakNcBa3RbE4nbQu76PDiJgoQgz8AJdhJuiU4TAw/go-cid"
@@ -14,7 +14,7 @@ import (
 // ImportAndStore imports the `data` to the `client`, and proposes a storage
 // deal using the provided `ask`, returning the cid of the import and the
 // created deal.
-func ImportAndStore(ctx context.Context, client *fast.Filecoin, ask api.Ask, data files.File) (cid.Cid, *deal.Response, error) {
+func ImportAndStore(ctx context.Context, client *fast.Filecoin, ask api.Ask, data files.File) (cid.Cid, *storagedeal.Response, error) {
 	// Client neeeds to import the data
 	dcid, err := client.ClientImport(ctx, data)
 	if err != nil {

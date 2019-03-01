@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/filecoin-project/go-filecoin/plumbing/dls"
+	"github.com/filecoin-project/go-filecoin/plumbing/strgdls"
 	"math/big"
 	"os"
 	"sync"
@@ -413,7 +413,7 @@ func (nc *Config) Build(ctx context.Context) (*Node, error) {
 		Network:      ntwk.New(peerHost, pubsub.NewPublisher(fsub), pubsub.NewSubscriber(fsub)),
 		SigGetter:    mthdsig.NewGetter(chainReader),
 		Wallet:       fcWallet,
-		Deals:        dls.New(nc.Repo.DealsDatastore()),
+		Deals:        strgdls.New(nc.Repo.DealsDatastore()),
 	}))
 
 	nd := &Node{

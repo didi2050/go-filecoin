@@ -13,11 +13,11 @@ import (
 	"github.com/filecoin-project/go-filecoin/core"
 	"github.com/filecoin-project/go-filecoin/exec"
 	"github.com/filecoin-project/go-filecoin/plumbing/cfg"
-	"github.com/filecoin-project/go-filecoin/plumbing/dls"
 	"github.com/filecoin-project/go-filecoin/plumbing/msg"
 	"github.com/filecoin-project/go-filecoin/plumbing/mthdsig"
 	"github.com/filecoin-project/go-filecoin/plumbing/ntwk"
-	"github.com/filecoin-project/go-filecoin/protocol/storage/deal"
+	"github.com/filecoin-project/go-filecoin/plumbing/strgdls"
+	"github.com/filecoin-project/go-filecoin/protocol/storage/storagedeal"
 	"github.com/filecoin-project/go-filecoin/pubsub"
 	"github.com/filecoin-project/go-filecoin/types"
 	"github.com/filecoin-project/go-filecoin/wallet"
@@ -41,7 +41,7 @@ type API struct {
 	network      *ntwk.Network
 	sigGetter    *mthdsig.Getter
 	wallet       *wallet.Wallet
-	deals        *dls.Lser
+	storagedeals *strgdls.Store
 }
 
 // APIDeps contains all the API's dependencies
@@ -56,7 +56,7 @@ type APIDeps struct {
 	Network      *ntwk.Network
 	SigGetter    *mthdsig.Getter
 	Wallet       *wallet.Wallet
-	Deals        *dls.Lser
+	Deals        *strgdls.Store
 }
 
 // New constructs a new instance of the API.
@@ -74,7 +74,7 @@ func New(deps *APIDeps) *API {
 		network:      deps.Network,
 		sigGetter:    deps.SigGetter,
 		wallet:       deps.Wallet,
-		deals:        deps.Deals,
+		storagedeals: deps.Deals,
 	}
 }
 
@@ -201,12 +201,12 @@ func (api *API) WalletNewAddress() (address.Address, error) {
 	return wallet.NewAddress(api.wallet)
 }
 
-// DealsLs returns a channel of all deals in the local datastore and a channel for errors or done
-func (api *API) DealsLs() ([]*deal.Deal, error) {
-	return api.deals.Ls()
+// DealsLs a slice of all storagedeals in the local datastore and possibly an error
+func (api *API) DealsLs() ([]*storagedeal.Deal, error) {
+	return api.storagedeals.Ls()
 }
 
-// PutDeal puts a given deal in the datastore
-func (api *API) PutDeal(storageDeal *deal.Deal) error {
+// DealPut puts a given deal in the datastore
+func (api *API) DealPut(storageDeal *storagedeal.Deal) error {
 	return api.deals.Put(storageDeal)
 }

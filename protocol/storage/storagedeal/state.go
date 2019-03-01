@@ -1,4 +1,4 @@
-package deal
+package storagedeal
 
 import (
 	"fmt"

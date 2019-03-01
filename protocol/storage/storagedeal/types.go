@@ -1,4 +1,4 @@
-package deal
+package storagedeal
 
 import (
 	"gx/ipfs/QmR8BauakNcBa3RbE4nbQu76PDiJgoQgz8AJdhJuiU4TAw/go-cid"
@@ -115,9 +115,6 @@ type Response struct {
 	// Signature is a signature from the miner over the response
 	Signature types.Signature
 }
-
-// ClientDatastorePrefix is the datastore prefix for client deals
-const ClientDatastorePrefix = "client"
 
 // Deal is a storage deal struct
 type Deal struct {

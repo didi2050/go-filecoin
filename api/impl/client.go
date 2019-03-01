@@ -2,7 +2,7 @@ package impl
 
 import (
 	"context"
-	"github.com/filecoin-project/go-filecoin/protocol/storage/deal"
+	"github.com/filecoin-project/go-filecoin/protocol/storage/storagedeal"
 	"io"
 	"math/big"
 
@@ -63,11 +63,11 @@ func (api *nodeClient) ImportData(ctx context.Context, data io.Reader) (ipld.Nod
 	return nd, bufds.Commit()
 }
 
-func (api *nodeClient) ProposeStorageDeal(ctx context.Context, data cid.Cid, miner address.Address, askid uint64, duration uint64, allowDuplicates bool) (*deal.Response, error) {
+func (api *nodeClient) ProposeStorageDeal(ctx context.Context, data cid.Cid, miner address.Address, askid uint64, duration uint64, allowDuplicates bool) (*storagedeal.Response, error) {
 	return api.api.node.StorageMinerClient.ProposeDeal(ctx, miner, data, askid, duration, allowDuplicates)
 }
 
-func (api *nodeClient) QueryStorageDeal(ctx context.Context, prop cid.Cid) (*deal.Response, error) {
+func (api *nodeClient) QueryStorageDeal(ctx context.Context, prop cid.Cid) (*storagedeal.Response, error) {
 	return api.api.node.StorageMinerClient.QueryDeal(ctx, prop)
 }
 

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/filecoin-project/go-filecoin/protocol/storage/deal"
+	"github.com/filecoin-project/go-filecoin/protocol/storage/storagedeal"
 
 	"gx/ipfs/QmR8BauakNcBa3RbE4nbQu76PDiJgoQgz8AJdhJuiU4TAw/go-cid"
 	"gx/ipfs/QmTu65MVbemtUxJEWgsTtzv9Zv9P8rvmqNA4eG9TrTRGYc/go-libp2p-peer"
@@ -32,17 +32,17 @@ func TestProposeDeal(t *testing.T) {
 
 	addressCreator := address.NewForTestGetter()
 
-	var proposal *deal.SignedDealProposal
+	var proposal *storagedeal.SignedDealProposal
 
 	testNode := newTestClientNode(func(request interface{}) (interface{}, error) {
-		p, ok := request.(*deal.SignedDealProposal)
+		p, ok := request.(*storagedeal.SignedDealProposal)
 		require.True(ok)
 		proposal = p
 
 		pcid, err := convert.ToCid(p.Proposal)
 		require.NoError(err)
-		return &deal.Response{
-			State:       deal.Accepted,
+		return &storagedeal.Response{
+			State:       storagedeal.Accepted,
 			Message:     "OK",
 			ProposalCid: pcid,
 		}, nil
@@ -106,7 +106,7 @@ func TestProposeDeal(t *testing.T) {
 	t.Run("and sends proposal and stores response", func(t *testing.T) {
 		assert.NotNil(dealResponse)
 
-		assert.Equal(deal.Accepted, dealResponse.State)
+		assert.Equal(storagedeal.Accepted, dealResponse.State)
 
 		retrievedDeal, err := testAPI.DealByCid(dealResponse.ProposalCid)
 		require.NoError(err)
@@ -123,7 +123,7 @@ type clientTestAPI struct {
 	target      address.Address
 	perPayment  *types.AttoFIL
 	require     *require.Assertions
-	deals       map[cid.Cid]*deal.Deal
+	deals       map[cid.Cid]*storagedeal.Deal
 }
 
 func newTestClientAPI(require *require.Assertions) *clientTestAPI {
@@ -138,7 +138,7 @@ func newTestClientAPI(require *require.Assertions) *clientTestAPI {
 		target:      addressGetter(),
 		perPayment:  types.NewAttoFILFromFIL(10),
 		require:     require,
-		deals:       make(map[cid.Cid]*deal.Deal),
+		deals:       make(map[cid.Cid]*storagedeal.Deal),
 	}
 }
 
@@ -214,17 +214,17 @@ func (tcn *testClientNode) GetFileSize(context.Context, cid.Cid) (uint64, error)
 }
 
 func (tcn *testClientNode) MakeProtocolRequest(ctx context.Context, protocol protocol.ID, peer peer.ID, request interface{}, response interface{}) error {
-	dealResponse := response.(*deal.Response)
+	dealResponse := response.(*storagedeal.Response)
 	res, err := tcn.responder(request)
 	if err != nil {
 		return err
 	}
-	*dealResponse = *res.(*deal.Response)
+	*dealResponse = *res.(*storagedeal.Response)
 	return nil
 }
 
-func (ctp *clientTestAPI) DealsLs() ([]*deal.Deal, error) {
-	var results []*deal.Deal
+func (ctp *clientTestAPI) DealsLs() ([]*storagedeal.Deal, error) {
+	var results []*storagedeal.Deal
 
 	for _, storageDeal := range ctp.deals {
 		results = append(results, storageDeal)
@@ -232,7 +232,7 @@ func (ctp *clientTestAPI) DealsLs() ([]*deal.Deal, error) {
 	return results, nil
 }
 
-func (ctp *clientTestAPI) DealByCid(dealCid cid.Cid) (*deal.Deal, error) {
+func (ctp *clientTestAPI) DealByCid(dealCid cid.Cid) (*storagedeal.Deal, error) {
 	storageDeal, ok := ctp.deals[dealCid]
 	if !ok {
 		return nil, fmt.Errorf("deal with cid %s not found", dealCid.String())
@@ -240,7 +240,7 @@ func (ctp *clientTestAPI) DealByCid(dealCid cid.Cid) (*deal.Deal, error) {
 	return storageDeal, nil
 }
 
-func (ctp *clientTestAPI) PutDeal(storageDeal *deal.Deal) error {
+func (ctp *clientTestAPI) PutDeal(storageDeal *storagedeal.Deal) error {
 	ctp.deals[storageDeal.Response.ProposalCid] = storageDeal
 	return nil
 }

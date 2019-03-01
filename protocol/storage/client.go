@@ -21,7 +21,7 @@ import (
 	"github.com/filecoin-project/go-filecoin/address"
 	cbu "github.com/filecoin-project/go-filecoin/cborutil"
 	"github.com/filecoin-project/go-filecoin/porcelain"
-	"github.com/filecoin-project/go-filecoin/protocol/storage/deal"
+	"github.com/filecoin-project/go-filecoin/protocol/storage/storagedeal"
 	"github.com/filecoin-project/go-filecoin/types"
 	"github.com/filecoin-project/go-filecoin/util/convert"
 )
@@ -64,9 +64,9 @@ type clientPorcelainAPI interface {
 	MinerGetAsk(ctx context.Context, minerAddr address.Address, askID uint64) (miner.Ask, error)
 	MinerGetOwnerAddress(ctx context.Context, minerAddr address.Address) (address.Address, error)
 	MinerGetPeerID(ctx context.Context, minerAddr address.Address) (peer.ID, error)
-	DealsLs() ([]*deal.Deal, error)
-	DealByCid(cid.Cid) (*deal.Deal, error)
-	PutDeal(*deal.Deal) error
+	DealsLs() ([]*storagedeal.Deal, error)
+	DealByCid(cid.Cid) *storagedeal.Deal
+	PutDeal(*storagedeal.Deal) error
 	types.Signer
 }
 
@@ -79,7 +79,7 @@ type Client struct {
 }
 
 func init() {
-	cbor.RegisterCborType(deal.Deal{})
+	cbor.RegisterCborType(storagedeal.Deal{})
 }
 
 // NewClient creates a new storage client.
@@ -92,7 +92,7 @@ func NewClient(nd clientNode, api clientPorcelainAPI) (*Client, error) {
 }
 
 // ProposeDeal is
-func (smc *Client) ProposeDeal(ctx context.Context, miner address.Address, data cid.Cid, askID uint64, duration uint64, allowDuplicates bool) (*deal.Response, error) {
+func (smc *Client) ProposeDeal(ctx context.Context, miner address.Address, data cid.Cid, askID uint64, duration uint64, allowDuplicates bool) (*storagedeal.Response, error) {
 	ctx, cancel := context.WithTimeout(ctx, 4*smc.node.GetBlockTime())
 	defer cancel()
 	size, err := smc.node.GetFileSize(ctx, data)
@@ -123,7 +123,7 @@ func (smc *Client) ProposeDeal(ctx context.Context, miner address.Address, data 
 
 	totalPrice := price.MulBigInt(big.NewInt(int64(size * duration)))
 
-	proposal := &deal.Proposal{
+	proposal := &storagedeal.Proposal{
 		PieceRef:     data,
 		Size:         types.NewBytesAmount(size),
 		TotalPrice:   totalPrice,
@@ -167,7 +167,7 @@ func (smc *Client) ProposeDeal(ctx context.Context, miner address.Address, data 
 		return nil, err
 	}
 
-	var response deal.Response
+	var response storagedeal.Response
 	err = smc.node.MakeProtocolRequest(ctx, makeDealProtocol, pid, signedProposal, &response)
 	if err != nil {
 		return nil, errors.Wrap(err, "error sending proposal")
@@ -186,7 +186,7 @@ func (smc *Client) ProposeDeal(ctx context.Context, miner address.Address, data 
 	return &response, nil
 }
 
-func (smc *Client) recordResponse(resp *deal.Response, miner address.Address, p *deal.Proposal) error {
+func (smc *Client) recordResponse(resp *storagedeal.Response, miner address.Address, p *storagedeal.Proposal) error {
 	proposalCid, err := convert.ToCid(p)
 	if err != nil {
 		return errors.New("failed to get cid of proposal")
@@ -194,27 +194,25 @@ func (smc *Client) recordResponse(resp *deal.Response, miner address.Address, p 
 	if !proposalCid.Equals(resp.ProposalCid) {
 		return fmt.Errorf("cids not equal %s %s", proposalCid, resp.ProposalCid)
 	}
-	smc.dealsLk.Lock()
-	defer smc.dealsLk.Unlock()
-	storageDeal, _ := smc.api.DealByCid(proposalCid)
+	storageDeal := smc.api.DealByCid(proposalCid)
 	if storageDeal != nil {
 		return fmt.Errorf("deal [%s] is already in progress", proposalCid.String())
 	}
 
-	return smc.api.PutDeal(&deal.Deal{
+	return smc.api.PutDeal(&storagedeal.Deal{
 		Miner:    miner,
 		Proposal: p,
 		Response: resp,
 	})
 }
 
-func (smc *Client) checkDealResponse(ctx context.Context, resp *deal.Response) error {
+func (smc *Client) checkDealResponse(ctx context.Context, resp *storagedeal.Response) error {
 	switch resp.State {
-	case deal.Rejected:
+	case storagedeal.Rejected:
 		return fmt.Errorf("deal rejected: %s", resp.Message)
-	case deal.Failed:
+	case storagedeal.Failed:
 		return fmt.Errorf("deal failed: %s", resp.Message)
-	case deal.Accepted:
+	case storagedeal.Accepted:
 		return nil
 	default:
 		return fmt.Errorf("invalid proposal response: %s", resp.State)
@@ -222,9 +220,7 @@ func (smc *Client) checkDealResponse(ctx context.Context, resp *deal.Response) e
 }
 
 func (smc *Client) minerForProposal(c cid.Cid) (address.Address, error) {
-	smc.dealsLk.Lock()
-	defer smc.dealsLk.Unlock()
-	storageDeal, _ := smc.api.DealByCid(c)
+	storageDeal := smc.api.DealByCid(c)
 	if storageDeal == nil {
 		return address.Address{}, fmt.Errorf("no such proposal by cid: %s", c)
 	}
@@ -233,7 +229,7 @@ func (smc *Client) minerForProposal(c cid.Cid) (address.Address, error) {
 }
 
 // QueryDeal queries an in-progress proposal.
-func (smc *Client) QueryDeal(ctx context.Context, proposalCid cid.Cid) (*deal.Response, error) {
+func (smc *Client) QueryDeal(ctx context.Context, proposalCid cid.Cid) (*storagedeal.Response, error) {
 	mineraddr, err := smc.minerForProposal(proposalCid)
 	if err != nil {
 		return nil, err
@@ -244,8 +240,8 @@ func (smc *Client) QueryDeal(ctx context.Context, proposalCid cid.Cid) (*deal.Re
 		return nil, err
 	}
 
-	q := deal.QueryRequest{Cid: proposalCid}
-	var resp deal.Response
+	q := storagedeal.QueryRequest{Cid: proposalCid}
+	var resp storagedeal.Response
 	err = smc.node.MakeProtocolRequest(ctx, queryDealProtocol, minerpid, q, &resp)
 	if err != nil {
 		return nil, errors.Wrap(err, "error querying deal")
@@ -254,9 +250,7 @@ func (smc *Client) QueryDeal(ctx context.Context, proposalCid cid.Cid) (*deal.Re
 	return &resp, nil
 }
 
-func (smc *Client) isMaybeDupDeal(p *deal.Proposal) bool {
-	smc.dealsLk.Lock()
-	defer smc.dealsLk.Unlock()
+func (smc *Client) isMaybeDupDeal(p *storagedeal.Proposal) bool {
 	deals, err := smc.api.DealsLs()
 	if err != nil {
 		return false
@@ -271,9 +265,9 @@ func (smc *Client) isMaybeDupDeal(p *deal.Proposal) bool {
 
 // LoadVouchersForDeal loads vouchers from disk for a given deal
 func (smc *Client) LoadVouchersForDeal(dealCid cid.Cid) ([]*paymentbroker.PaymentVoucher, error) {
-	storageDeal, err := smc.api.DealByCid(dealCid)
-	if err != nil {
-		return []*paymentbroker.PaymentVoucher{}, err
+	storageDeal := smc.api.DealByCid(dealCid)
+	if storageDeal == nil {
+		return []*paymentbroker.PaymentVoucher{}, fmt.Errorf("could not retriee deal with proposal CID %s", dealCid)
 	}
 	return storageDeal.Proposal.Payment.Vouchers, nil
 }
