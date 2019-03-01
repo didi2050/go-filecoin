@@ -55,10 +55,8 @@ type Miner struct {
 	minerAddr      address.Address
 	minerOwnerAddr address.Address
 
-	// deals is a list of deals we made. It is indexed by the CID of the proposal.
-	deals   map[cid.Cid]*deal.Deal
-	dealsDs repo.Datastore
-	dealsLk sync.Mutex
+	dealsAwaitingSealDs repo.Datastore
+	dealsLk             sync.Mutex
 
 	postInProcessLk sync.Mutex
 	postInProcess   *types.BlockHeight
@@ -112,14 +110,13 @@ func init() {
 // NewMiner is
 func NewMiner(minerAddr, minerOwnerAddr address.Address, nd node, dealsDs repo.Datastore, porcelainAPI minerPorcelain) (*Miner, error) {
 	sm := &Miner{
-		minerAddr:        minerAddr,
-		minerOwnerAddr:   minerOwnerAddr,
-		deals:            make(map[cid.Cid]*deal.Deal),
-		porcelainAPI:     porcelainAPI,
-		dealsDs:          dealsDs,
-		node:             nd,
-		proposalAcceptor: acceptProposal,
-		proposalRejector: rejectProposal,
+		minerAddr:           minerAddr,
+		minerOwnerAddr:      minerOwnerAddr,
+		porcelainAPI:        porcelainAPI,
+		dealsAwaitingSealDs: dealsDs,
+		node:                nd,
+		proposalAcceptor:    acceptProposal,
+		proposalRejector:    rejectProposal,
 	}
 
 	if err := sm.loadDealsAwaitingSeal(); err != nil {
@@ -127,10 +124,6 @@ func NewMiner(minerAddr, minerOwnerAddr address.Address, nd node, dealsDs repo.D
 	}
 	sm.dealsAwaitingSeal.onSuccess = sm.onCommitSuccess
 	sm.dealsAwaitingSeal.onFail = sm.onCommitFail
-
-	if err := sm.loadDeals(); err != nil {
-		return nil, errors.Wrap(err, "failed to load miner deals when creating miner")
-	}
 
 	nd.Host().SetStreamHandler(makeDealProtocol, sm.handleMakeDeal)
 	nd.Host().SetStreamHandler(queryDealProtocol, sm.handleQueryDeal)
@@ -338,15 +331,14 @@ func acceptProposal(sm *Miner, p *deal.Proposal) (*deal.Response, error) {
 	sm.dealsLk.Lock()
 	defer sm.dealsLk.Unlock()
 
-	sm.deals[proposalCid] = &deal.Deal{
+	storageDeal := &deal.Deal{
 		Miner:    sm.minerAddr,
 		Proposal: p,
 		Response: resp,
 	}
-	if err := sm.saveDeal(proposalCid); err != nil {
-		sm.deals[proposalCid].Response.State = deal.Failed
-		sm.deals[proposalCid].Response.Message = "Could not persist deal due to internal error"
-		return nil, errors.Wrap(err, "failed to save miner deal")
+
+	if err := sm.porcelainAPI.PutDeal(storageDeal); err != nil {
+		return nil, errors.Wrap(err, "Could not persist miner deal")
 	}
 
 	// TODO: use some sort of nicer scheduler
@@ -371,34 +363,32 @@ func rejectProposal(sm *Miner, p *deal.Proposal, reason string) (*deal.Response,
 	sm.dealsLk.Lock()
 	defer sm.dealsLk.Unlock()
 
-	sm.deals[proposalCid] = &deal.Deal{
+	storageDeal := &deal.Deal{
 		Miner:    sm.minerAddr,
 		Proposal: p,
 		Response: resp,
 	}
-	if err := sm.saveDeal(proposalCid); err != nil {
+	if err := sm.porcelainAPI.PutDeal(storageDeal); err != nil {
 		return nil, errors.Wrap(err, "failed to save miner deal")
 	}
 
 	return resp, nil
 }
 
-func (sm *Miner) getStorageDeal(c cid.Cid) *deal.Deal {
-	sm.dealsLk.Lock()
-	defer sm.dealsLk.Unlock()
-	return sm.deals[c]
-}
-
 func (sm *Miner) updateDealResponse(proposalCid cid.Cid, f func(*deal.Response)) error {
 	sm.dealsLk.Lock()
 	defer sm.dealsLk.Unlock()
-	f(sm.deals[proposalCid].Response)
-	err := sm.saveDeal(proposalCid)
+	storageDeal, err := sm.porcelainAPI.DealByCid(proposalCid)
+	if err != nil {
+		return errors.Wrapf(err, "failed to get retrive deal with proposal CID %s", proposalCid.String())
+	}
+	f(storageDeal.Response)
+	err = sm.porcelainAPI.PutDeal(storageDeal)
 	if err != nil {
 		return errors.Wrap(err, "failed to store updated deal response in datastore")
 	}
 
-	log.Debugf("Miner.updatedeal.Response(%s) - %d", proposalCid.String(), sm.deals[proposalCid].Response)
+	log.Debugf("Miner.updatedeal.Response(%s) - %d", proposalCid.String(), storageDeal.Response)
 	return nil
 }
 
@@ -407,7 +397,10 @@ func (sm *Miner) processStorageDeal(c cid.Cid) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	d := sm.getStorageDeal(c)
+	d, err := sm.porcelainAPI.DealByCid(c)
+	if err != nil {
+		log.Errorf("error while retrieving deal with proposal CID %s", c.String())
+	}
 	if d.Response.State != deal.Accepted {
 		// TODO: handle resumption of deal processing across miner restarts
 		log.Error("attempted to process an already started deal")
@@ -503,7 +496,7 @@ func (sm *Miner) loadDealsAwaitingSeal() error {
 	}
 
 	key := datastore.KeyWithNamespaces([]string{dealsAwatingSealDatastorePrefix})
-	result, notFound := sm.dealsDs.Get(key)
+	result, notFound := sm.dealsAwaitingSealDs.Get(key)
 	if notFound == nil {
 		if err := json.Unmarshal(result, &sm.dealsAwaitingSeal); err != nil {
 			return errors.Wrap(err, "failed to unmarshal deals awaiting seal from datastore")
@@ -519,7 +512,7 @@ func (sm *Miner) saveDealsAwaitingSeal() error {
 		return errors.Wrap(err, "Could not marshal dealsAwaitingSeal")
 	}
 	key := datastore.KeyWithNamespaces([]string{dealsAwatingSealDatastorePrefix})
-	err = sm.dealsDs.Put(key, marshalledDealsAwaitingSeal)
+	err = sm.dealsAwaitingSealDs.Put(key, marshalledDealsAwaitingSeal)
 	if err != nil {
 		return errors.Wrap(err, "could not save deal awaiting seal record to disk, in-memory deals differ from persisted deals!")
 	}
@@ -795,15 +788,15 @@ func (sm *Miner) submitPoSt(start, end *types.BlockHeight, inputs []generatePost
 func (sm *Miner) Query(c cid.Cid) *deal.Response {
 	sm.dealsLk.Lock()
 	defer sm.dealsLk.Unlock()
-	d, ok := sm.deals[c]
-	if !ok {
+	storageDeal, err := sm.porcelainAPI.DealByCid(c)
+	if err != nil {
 		return &deal.Response{
 			State:   deal.Unknown,
 			Message: "no such deal",
 		}
 	}
 
-	return d.Response
+	return storageDeal.Response
 }
 
 func (sm *Miner) handleQueryDeal(s inet.Stream) {
@@ -835,30 +828,4 @@ func getFileSize(ctx context.Context, c cid.Cid, dserv ipld.DAGService) (uint64,
 	default:
 		return 0, fmt.Errorf("unrecognized node type: %T", fnode)
 	}
-}
-
-func (sm *Miner) loadDeals() error {
-	sm.deals = make(map[cid.Cid]*deal.Deal)
-
-	deals, err := sm.porcelainAPI.DealsLs()
-	if err != nil {
-		return err
-	}
-	for _, storageDeal := range deals {
-		sm.deals[storageDeal.Response.ProposalCid] = storageDeal
-	}
-	return nil
-}
-
-func (sm *Miner) saveDeal(proposalCid cid.Cid) error {
-	marshaledDeal, err := cbor.DumpObject(sm.deals[proposalCid])
-	if err != nil {
-		return errors.Wrap(err, "Could not marshal deal.Deal")
-	}
-	key := datastore.KeyWithNamespaces([]string{deal.ClientDatastorePrefix, proposalCid.String()})
-	err = sm.dealsDs.Put(key, marshaledDeal)
-	if err != nil {
-		return errors.Wrap(err, "could not save client storage deal")
-	}
-	return nil
 }

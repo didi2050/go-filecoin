@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"fmt"
 	"github.com/filecoin-project/go-filecoin/protocol/storage/deal"
 	"testing"
 
@@ -241,7 +242,7 @@ func TestDealsAwaitingSeal(t *testing.T) {
 				SuccessfulSectors: make(map[uint64]*sectorbuilder.SealedSectorMetadata),
 				FailedSectors:     make(map[uint64]string),
 			},
-			dealsDs: repo.NewInMemoryRepo().DealsDatastore(),
+			dealsAwaitingSealDs: repo.NewInMemoryRepo().DealsDatastore(),
 		}
 
 		miner.dealsAwaitingSeal.add(wantSectorID, cid0)
@@ -357,6 +358,7 @@ type minerTestPorcelain struct {
 	blockHeight   *types.BlockHeight
 	channelEol    *types.BlockHeight
 	paymentStart  *types.BlockHeight
+	deals         map[cid.Cid]*deal.Deal
 
 	require *require.Assertions
 }
@@ -370,7 +372,7 @@ func newMinerTestPorcelain(require *require.Assertions) *minerTestPorcelain {
 	addressGetter := address.NewForTestGetter()
 	cidGetter := types.NewCidForTestGetter()
 
-	cid := cidGetter()
+	messageCid := cidGetter()
 
 	config := cfg.NewConfig(repo.NewInMemoryRepo())
 	config.Set("mining.storagePrice", `".00025"`)
@@ -381,13 +383,14 @@ func newMinerTestPorcelain(require *require.Assertions) *minerTestPorcelain {
 		payerAddress:  payerAddr,
 		targetAddress: addressGetter(),
 		channelID:     types.NewChannelID(73),
-		messageCid:    &cid,
+		messageCid:    &messageCid,
 		signer:        mockSigner,
 		noChannels:    false,
 		channelEol:    types.NewBlockHeight(13773),
 		blockHeight:   blockHeight,
 		paymentStart:  blockHeight,
 		require:       require,
+		deals:         make(map[cid.Cid]*deal.Deal),
 	}
 }
 
@@ -493,19 +496,23 @@ func testSignedDealProposal(porcelainAPI *minerTestPorcelain, vouchers []*paymen
 }
 
 func (mtp *minerTestPorcelain) DealsLs() ([]*deal.Deal, error) {
-	result := []*deal.Deal{{Miner: address.Address{}, Proposal: &deal.Proposal{}, Response: &deal.Response{
-		State:       deal.Accepted,
-		Message:     "OK",
-		ProposalCid: cid.Cid{},
-	}}}
+	var results []*deal.Deal
 
-	return result, nil
+	for _, storageDeal := range mtp.deals {
+		results = append(results, storageDeal)
+	}
+	return results, nil
 }
 
 func (mtp *minerTestPorcelain) DealByCid(dealCid cid.Cid) (*deal.Deal, error) {
-	return &deal.Deal{Miner: address.Address{}, Proposal: &deal.Proposal{}, Response: &deal.Response{
-		State:       deal.Accepted,
-		Message:     "OK",
-		ProposalCid: cid.Cid{},
-	}}, nil
+	storageDeal, ok := mtp.deals[dealCid]
+	if !ok {
+		return nil, fmt.Errorf("deal with cid %s not found", dealCid.String())
+	}
+	return storageDeal, nil
+}
+
+func (mtp *minerTestPorcelain) PutDeal(storageDeal *deal.Deal) error {
+	mtp.deals[storageDeal.Response.ProposalCid] = storageDeal
+	return nil
 }

@@ -196,7 +196,7 @@ func (smc *Client) recordResponse(resp *deal.Response, miner address.Address, p 
 	}
 	smc.dealsLk.Lock()
 	defer smc.dealsLk.Unlock()
-	storageDeal, err := smc.api.DealByCid(proposalCid)
+	storageDeal, _ := smc.api.DealByCid(proposalCid)
 	if storageDeal != nil {
 		return fmt.Errorf("deal [%s] is already in progress", proposalCid.String())
 	}
