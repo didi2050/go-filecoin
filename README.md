@@ -40,8 +40,10 @@ Filecoin is a decentralized storage network that turns the world’s unused stor
 **WARNING**: `go-filecoin` is a work in progress and is not ready for production use.
 See [KNOWN_ISSUES](https://github.com/filecoin-project/go-filecoin/blob/master/KNOWN_ISSUES.md) for an outline of known vulnerabilities.
 
+## 安装
 ## Install
 
+欢迎使用FileCoin！
 👋 Welcome to Go Filecoin!
 
 <!--
@@ -50,8 +52,10 @@ See [KNOWN_ISSUES](https://github.com/filecoin-project/go-filecoin/blob/master/K
 - To **build** `go-filecoin` from source for development, keep following this README.
 -->
 
+### 系统要求
 ### System Requirements
 
+Filecoin 可以在大部分的Linux和MacOS系统中安装和运行。目前不支持Windows 系统
 Filecoin can build and run on most Linux and MacOS systems. Windows is not yet supported.
 
 <!--
