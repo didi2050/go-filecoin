@@ -1,4 +1,5 @@
 # Filecoin (go-filecoin)
+[中文说明](/README.zh-CN.md)
 
 [![CircleCI](https://circleci.com/gh/filecoin-project/go-filecoin.svg?style=svg&circle-token=5a9d1cb48788b41d98bdfbc8b15298816ec71fea)](https://circleci.com/gh/filecoin-project/go-filecoin)
 
