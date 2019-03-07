@@ -2,7 +2,7 @@
 
 [![CircleCI](https://circleci.com/gh/filecoin-project/go-filecoin.svg?style=svg&circle-token=5a9d1cb48788b41d98bdfbc8b15298816ec71fea)](https://circleci.com/gh/filecoin-project/go-filecoin)
 
-> 用Go语言实现Filecoin, 把世界上闲置的存储空间变成算法市场。
+> 用Go语言实现Filecoin, 能把世界上闲置的存储空间变成算法市场。
 
 **目录**
 <!--
@@ -15,7 +15,7 @@
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
 
 
-- [Filecoin 是个啥?](#what-is-filecoin)
+- [啥是Filecoin?](#what-is-filecoin)
 - [安装](#install)
   - [系统要求](#system-requirements)
 <!--  - [Install from Release Binary](#install-from-release-binary) -->
@@ -34,8 +34,8 @@
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
-## What is Filecoin?
-Filecoin is a decentralized storage network that turns the world’s unused storage into an algorithmic market, creating a permanent, decentralized future for the web. **Miners** earn the native protocol token (also called “filecoin”) by providing data storage and/or retrieval. **Clients** pay miners to store or distribute data and to retrieve it. Check out [How Filecoin Works](https://github.com/filecoin-project/go-filecoin/wiki/How-Filecoin-Works) for more.
+## 啥是Filecoin?
+Filecoin是一个分布式存储网络，能把世界上闲置的存储空间变成算法市场, 创造一个永久在线且去中心化的网络世界。 **矿工** 通过数据存储或检索来获得 token (或叫做 “filecoin”) . **客户端** 付给矿工存储或分发数据并检索数据. 点着查看 [Filecoin 工作原理](https://github.com/filecoin-project/go-filecoin/wiki/How-Filecoin-Works) .
 
 **WARNING**: `go-filecoin` is a work in progress and is not ready for production use.
 See [KNOWN_ISSUES](https://github.com/filecoin-project/go-filecoin/blob/master/KNOWN_ISSUES.md) for an outline of known vulnerabilities.
