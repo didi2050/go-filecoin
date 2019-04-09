@@ -3,10 +3,18 @@ package chain
 import (
 	"context"
 
-	"gx/ipfs/QmVmDhyTTUcQXFD1rRQ64fGLMSAoaQvNH3hwuaCFAPq2hy/errors"
+	"github.com/pkg/errors"
 
+	"github.com/filecoin-project/go-filecoin/consensus"
+	"github.com/filecoin-project/go-filecoin/sampling"
 	"github.com/filecoin-project/go-filecoin/types"
 )
+
+// GetRecentAncestorsOfHeaviestChain returns the ancestors of a `TipSet` with
+// height `descendantBlockHeight` in the heaviest chain.
+func GetRecentAncestorsOfHeaviestChain(ctx context.Context, chainReader ReadStore, descendantBlockHeight *types.BlockHeight) ([]types.TipSet, error) {
+	return GetRecentAncestors(ctx, chainReader.Head(), chainReader, descendantBlockHeight, consensus.AncestorRoundsNeeded, sampling.LookbackParameter)
+}
 
 // GetRecentAncestors returns the ancestors of base as a slice of TipSets.
 //
@@ -87,14 +95,12 @@ func CollectTipSetsOfHeightAtLeast(ctx context.Context, ch <-chan interface{}, m
 			if !more {
 				return ret, nil
 			}
-			switch raw.(type) { // nolint: staticcheck
+			switch raw := raw.(type) {
 			case error:
-				e := raw.(error)
-				return nil, e
+				return nil, raw
 			case types.TipSet:
 				// Add tipset to ancestors.
-				ts := raw.(types.TipSet)
-				h, err := ts.Height()
+				h, err := raw.Height()
 				if err != nil {
 					return nil, err
 				}
@@ -103,7 +109,7 @@ func CollectTipSetsOfHeightAtLeast(ctx context.Context, ch <-chan interface{}, m
 				if types.NewBlockHeight(h).LessThan(minHeight) {
 					return ret, nil
 				}
-				ret = append(ret, ts)
+				ret = append(ret, raw)
 			}
 		}
 	}
@@ -121,14 +127,12 @@ func CollectAtMostNTipSets(ctx context.Context, ch <-chan interface{}, n uint) (
 			if !more {
 				return ret, nil
 			}
-			switch raw.(type) { // nolint: staticcheck
+			switch raw := raw.(type) {
 			case error:
-				e := raw.(error)
-				return nil, e
+				return nil, raw
 			case types.TipSet:
 				// Add tipset to ancestors.
-				ts := raw.(types.TipSet)
-				ret = append(ret, ts)
+				ret = append(ret, raw)
 			}
 		}
 

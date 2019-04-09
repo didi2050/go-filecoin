@@ -3,9 +3,9 @@ package chain
 import (
 	"context"
 
-	"gx/ipfs/QmR8BauakNcBa3RbE4nbQu76PDiJgoQgz8AJdhJuiU4TAw/go-cid"
-	"gx/ipfs/QmUadX5EcvrBmxAV9sE7wUWtWSqxns5K84qKJBixmcT1w9/go-datastore"
-	"gx/ipfs/QmdbxjQWogRCHRaxhhGnYdT1oQJzL9GdqSKzCdqWr85AP2/pubsub"
+	"github.com/cskr/pubsub"
+	"github.com/ipfs/go-cid"
+	"github.com/ipfs/go-datastore"
 
 	"github.com/filecoin-project/go-filecoin/state"
 	"github.com/filecoin-project/go-filecoin/types"
@@ -41,6 +41,7 @@ type ReadStore interface {
 	LatestState(ctx context.Context) (state.Tree, error)
 
 	BlockHistory(ctx context.Context, tips types.TipSet) <-chan interface{}
+
 	GenesisCid() cid.Cid
 }
 
@@ -66,7 +67,7 @@ type Store interface {
 	HasTipSetAndStatesWithParentsAndHeight(ctx context.Context, pTsKey string, h uint64) bool
 
 	// GetBlocks gets several blocks by cid. In the future there is caching here
-	GetBlocks(ctx context.Context, ids types.SortedCidSet) ([]*types.Block, error)
+	GetBlocks(ctx context.Context, cids types.SortedCidSet) ([]*types.Block, error)
 	// HasAllBlocks indicates whether the blocks are in the store.
 	HasAllBlocks(ctx context.Context, cs []cid.Cid) bool
 	HasBlock(ctx context.Context, c cid.Cid) bool

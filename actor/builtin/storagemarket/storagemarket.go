@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"math/big"
 
-	"gx/ipfs/QmNf3wujpV2Y7Lnj2hy2UrmuX8bhMDStRHbnSLh7Ypf36h/go-hamt-ipld"
-	"gx/ipfs/QmR8BauakNcBa3RbE4nbQu76PDiJgoQgz8AJdhJuiU4TAw/go-cid"
-	"gx/ipfs/QmTu65MVbemtUxJEWgsTtzv9Zv9P8rvmqNA4eG9TrTRGYc/go-libp2p-peer"
-	cbor "gx/ipfs/QmcZLyosDwMKdB6NLRsiss9HXzDPhVhhRtPy67JFKTDQDX/go-ipld-cbor"
+	"github.com/ipfs/go-cid"
+	"github.com/ipfs/go-hamt-ipld"
+	cbor "github.com/ipfs/go-ipld-cbor"
+	"github.com/libp2p/go-libp2p-peer"
 
 	"github.com/filecoin-project/go-filecoin/abi"
 	"github.com/filecoin-project/go-filecoin/actor"
@@ -107,8 +107,8 @@ var storageMarketExports = exec.Exports{
 // CreateMiner creates a new miner with the a pledge of the given amount of sectors. The
 // miners collateral is set by the value in the message.
 func (sma *Actor) CreateMiner(vmctx exec.VMContext, pledge *big.Int, publicKey []byte, pid peer.ID) (address.Address, uint8, error) {
-	if err := vmctx.Charge(100); err != nil {
-		return address.Address{}, exec.ErrInsufficientGas, errors.RevertErrorWrap(err, "Insufficient gas")
+	if err := vmctx.Charge(actor.DefaultGasCost); err != nil {
+		return address.Undef, exec.ErrInsufficientGas, errors.RevertErrorWrap(err, "Insufficient gas")
 	}
 
 	var state State
@@ -153,7 +153,7 @@ func (sma *Actor) CreateMiner(vmctx exec.VMContext, pledge *big.Int, publicKey [
 		return addr, nil
 	})
 	if err != nil {
-		return address.Address{}, errors.CodeError(err), err
+		return address.Undef, errors.CodeError(err), err
 	}
 
 	return ret.(address.Address), 0, nil
@@ -163,7 +163,7 @@ func (sma *Actor) CreateMiner(vmctx exec.VMContext, pledge *big.Int, publicKey [
 // This occurs either when a miner adds a new commitment, or when one is removed
 // (via slashing or willful removal). The delta is in number of sectors.
 func (sma *Actor) UpdatePower(vmctx exec.VMContext, delta *big.Int) (uint8, error) {
-	if err := vmctx.Charge(100); err != nil {
+	if err := vmctx.Charge(actor.DefaultGasCost); err != nil {
 		return exec.ErrInsufficientGas, errors.RevertErrorWrap(err, "Insufficient gas")
 	}
 
@@ -198,7 +198,7 @@ func (sma *Actor) UpdatePower(vmctx exec.VMContext, delta *big.Int) (uint8, erro
 
 // GetTotalStorage returns the total amount of proven storage in the system.
 func (sma *Actor) GetTotalStorage(vmctx exec.VMContext) (*big.Int, uint8, error) {
-	if err := vmctx.Charge(100); err != nil {
+	if err := vmctx.Charge(actor.DefaultGasCost); err != nil {
 		return nil, exec.ErrInsufficientGas, errors.RevertErrorWrap(err, "Insufficient gas")
 	}
 

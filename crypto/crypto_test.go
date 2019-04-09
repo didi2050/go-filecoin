@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/assert"
+	"github.com/stretchr/testify/assert"
 
 	"github.com/filecoin-project/go-filecoin/crypto"
 )
@@ -20,7 +20,9 @@ func TestGenerateKey(t *testing.T) {
 	assert.Equal(len(sk), 32)
 
 	msg := make([]byte, 32)
-	msg[0] = 1
+	for i := 0; i < len(msg); i++ {
+		msg[i] = byte(i)
+	}
 
 	digest, err := crypto.Sign(sk, msg)
 	assert.NoError(err)

@@ -3,12 +3,12 @@ package commands
 import (
 	"testing"
 
-	"gx/ipfs/Qmde5VP1qUkyQXKCfmEUA7bP64V2HAptbJ7phuPp7jXWwg/go-ipfs-cmdkit"
+	"github.com/ipfs/go-ipfs-cmdkit"
 
 	"github.com/filecoin-project/go-filecoin/address"
 
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/assert"
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestOptionalAddr(t *testing.T) {
@@ -21,9 +21,8 @@ func TestOptionalAddr(t *testing.T) {
 
 		opts := make(cmdkit.OptMap)
 
-		hash := address.Hash([]byte("a new test address"))
-
-		specifiedAddr := address.NewMainnet(hash)
+		specifiedAddr, err := address.NewActorAddress([]byte("a new test address"))
+		require.NoError(err)
 		opts["from"] = specifiedAddr.String()
 
 		addr, err := optionalAddr(opts["from"])
@@ -38,6 +37,6 @@ func TestOptionalAddr(t *testing.T) {
 
 		addr, err := optionalAddr(opts["from"])
 		require.NoError(err)
-		assert.Equal(address.Address{}, addr)
+		assert.Equal(address.Undef, addr)
 	})
 }

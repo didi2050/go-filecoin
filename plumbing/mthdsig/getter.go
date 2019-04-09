@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"gx/ipfs/QmVmDhyTTUcQXFD1rRQ64fGLMSAoaQvNH3hwuaCFAPq2hy/errors"
+	"github.com/pkg/errors"
 
 	"github.com/filecoin-project/go-filecoin/address"
 	"github.com/filecoin-project/go-filecoin/exec"
@@ -46,7 +46,7 @@ func (sg *Getter) Get(ctx context.Context, actorAddr address.Address, method str
 	actor, err := st.GetActor(ctx, actorAddr)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get actor")
-	} else if !actor.Code.Defined() {
+	} else if actor.Empty() {
 		return nil, ErrNoActorImpl
 	}
 

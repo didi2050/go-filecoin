@@ -5,7 +5,7 @@ import (
 
 	"github.com/filecoin-project/go-filecoin/address"
 
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/require"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSectorBuilderUtils(t *testing.T) {
@@ -13,8 +13,8 @@ func TestSectorBuilderUtils(t *testing.T) {
 		t.Parallel()
 		require := require.New(t)
 
-		hash := address.Hash([]byte("satoshi"))
-		addr := address.NewMainnet(hash)
+		addr, err := address.NewActorAddress([]byte("satoshi"))
+		require.NoError(err)
 
 		id := AddressToProverID(addr)
 

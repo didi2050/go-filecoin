@@ -3,16 +3,16 @@ package msg
 import (
 	"context"
 
-	hamt "gx/ipfs/QmNf3wujpV2Y7Lnj2hy2UrmuX8bhMDStRHbnSLh7Ypf36h/go-hamt-ipld"
-	bstore "gx/ipfs/QmRu7tiRnFk9mMPpVECQTBQJqXtmG132jJxA1w9A7TtpBz/go-ipfs-blockstore"
-	offline "gx/ipfs/QmSz8kAe2JCKp2dWSG8gHSWnwSmne8YfRXTeK5HBmc9L7t/go-ipfs-exchange-offline"
-	bserv "gx/ipfs/QmZsGVGCqMCNzHLNMB6q4F6yyvomqf1VxwhJwSfgo1NGaF/go-blockservice"
+	bserv "github.com/ipfs/go-blockservice"
+	hamt "github.com/ipfs/go-hamt-ipld"
+	bstore "github.com/ipfs/go-ipfs-blockstore"
+	offline "github.com/ipfs/go-ipfs-exchange-offline"
+	"github.com/stretchr/testify/require"
 
 	"github.com/filecoin-project/go-filecoin/chain"
 	"github.com/filecoin-project/go-filecoin/consensus"
 	"github.com/filecoin-project/go-filecoin/repo"
 	"github.com/filecoin-project/go-filecoin/wallet"
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/require"
 )
 
 type commonDeps struct {
@@ -23,11 +23,7 @@ type commonDeps struct {
 	cst        *hamt.CborIpldStore
 }
 
-func requireCommonDeps(require *require.Assertions) *commonDeps { //nolint: deadcode
-	return requireCommonDepsWithGif(require, consensus.InitGenesis)
-}
-
-func requireCommonDepsWithGif(require *require.Assertions, gif consensus.GenesisInitFunc) *commonDeps {
+func requiredCommonDeps(require *require.Assertions, gif consensus.GenesisInitFunc) *commonDeps { // nolint: deadcode
 	r := repo.NewInMemoryRepo()
 	bs := bstore.NewBlockstore(r.Datastore())
 	return requireCommonDepsWithGifAndBlockstore(require, gif, r, bs)

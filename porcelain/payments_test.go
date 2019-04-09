@@ -1,4 +1,4 @@
-package porcelain
+package porcelain_test
 
 import (
 	"context"
@@ -6,15 +6,16 @@ import (
 	"math/big"
 	"testing"
 
-	"gx/ipfs/QmR8BauakNcBa3RbE4nbQu76PDiJgoQgz8AJdhJuiU4TAw/go-cid"
+	"github.com/ipfs/go-cid"
 
 	"github.com/filecoin-project/go-filecoin/actor"
 	"github.com/filecoin-project/go-filecoin/actor/builtin/paymentbroker"
 	"github.com/filecoin-project/go-filecoin/address"
 	"github.com/filecoin-project/go-filecoin/exec"
+	. "github.com/filecoin-project/go-filecoin/porcelain"
 	"github.com/filecoin-project/go-filecoin/types"
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/assert"
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -176,7 +177,7 @@ func TestCreatePayments(t *testing.T) {
 		require := require.New(t)
 
 		config := validPaymentsConfig()
-		config.From = address.Address{}
+		config.From = address.Undef
 		_, err := CreatePayments(context.Background(), successPlumbing, config)
 		require.Error(err)
 		assert.Contains(err.Error(), "From")
@@ -187,7 +188,7 @@ func TestCreatePayments(t *testing.T) {
 		require := require.New(t)
 
 		config := validPaymentsConfig()
-		config.To = address.Address{}
+		config.To = address.Undef
 		_, err := CreatePayments(context.Background(), successPlumbing, config)
 		require.Error(err)
 		assert.Contains(err.Error(), "To")

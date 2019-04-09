@@ -4,22 +4,21 @@ import (
 	"context"
 	"math/big"
 
-	"gx/ipfs/QmNf3wujpV2Y7Lnj2hy2UrmuX8bhMDStRHbnSLh7Ypf36h/go-hamt-ipld"
-	"gx/ipfs/QmR8BauakNcBa3RbE4nbQu76PDiJgoQgz8AJdhJuiU4TAw/go-cid"
-	"gx/ipfs/QmRu7tiRnFk9mMPpVECQTBQJqXtmG132jJxA1w9A7TtpBz/go-ipfs-blockstore"
-	"gx/ipfs/QmTu65MVbemtUxJEWgsTtzv9Zv9P8rvmqNA4eG9TrTRGYc/go-libp2p-peer"
-	"gx/ipfs/QmUadX5EcvrBmxAV9sE7wUWtWSqxns5K84qKJBixmcT1w9/go-datastore"
+	"github.com/ipfs/go-cid"
+	"github.com/ipfs/go-datastore"
+	"github.com/ipfs/go-hamt-ipld"
+	"github.com/ipfs/go-ipfs-blockstore"
+	"github.com/libp2p/go-libp2p-peer"
 
 	"github.com/filecoin-project/go-filecoin/actor"
 	"github.com/filecoin-project/go-filecoin/actor/builtin"
 	"github.com/filecoin-project/go-filecoin/actor/builtin/account"
 	"github.com/filecoin-project/go-filecoin/actor/builtin/miner"
 	"github.com/filecoin-project/go-filecoin/address"
-	"github.com/filecoin-project/go-filecoin/filnet"
 	"github.com/filecoin-project/go-filecoin/state"
 	"github.com/filecoin-project/go-filecoin/types"
 	"github.com/filecoin-project/go-filecoin/vm"
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/require"
+	"github.com/stretchr/testify/require"
 )
 
 // RequireMakeStateTree takes a map of addresses to actors and stores them on
@@ -83,13 +82,25 @@ func RequireNewFakeActorWithTokens(require *require.Assertions, vms vm.StorageMa
 }
 
 // RequireRandomPeerID returns a new libp2p peer ID or panics.
-func RequireRandomPeerID() peer.ID {
-	pid, err := filnet.RandPeerID()
-	if err != nil {
-		panic(err)
-	}
-
+func RequireRandomPeerID(require *require.Assertions) peer.ID {
+	pid, err := RandPeerID()
+	require.NoError(err)
 	return pid
+}
+
+// TestBlockTimer provides a simple BlockTimer interface implementation.
+type TestBlockTimer struct {
+	Height uint64
+}
+
+// NewTestBlockTimer creates a new TestBlockTimer.
+func NewTestBlockTimer(h uint64) *TestBlockTimer {
+	return &TestBlockTimer{Height: h}
+}
+
+// BlockHeight represents the height of the highest tipset.
+func (tbt *TestBlockTimer) BlockHeight() (uint64, error) {
+	return tbt.Height, nil
 }
 
 // VMStorage creates a new storage object backed by an in memory datastore

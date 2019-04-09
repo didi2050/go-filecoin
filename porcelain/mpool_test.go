@@ -5,12 +5,12 @@ import (
 	"sync"
 	"testing"
 
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/assert"
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
+	"github.com/filecoin-project/go-filecoin/net/pubsub"
 	"github.com/filecoin-project/go-filecoin/plumbing/msg"
 	"github.com/filecoin-project/go-filecoin/porcelain"
-	"github.com/filecoin-project/go-filecoin/pubsub"
 	"github.com/filecoin-project/go-filecoin/types"
 )
 
@@ -85,7 +85,7 @@ func TestMessagePoolWait(t *testing.T) {
 				plumbing.pending = types.NewSignedMsgs(1, signer)
 				plumbing.subscription.Post(nil)
 			}
-			callCount += 1
+			callCount++
 		}
 
 		plumbing = newFakeMpoolWaitPlumbing(handlePendingCalled)

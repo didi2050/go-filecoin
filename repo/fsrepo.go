@@ -12,12 +12,12 @@ import (
 	"sync"
 	"time"
 
-	badgerds "gx/ipfs/QmTNJogwkhnbHeRmAXWtzvN2KgVko2oNmHHQN1ggHVhF91/go-ds-badger"
-	keystore "gx/ipfs/QmTsgWR7cZQ11NMMSgptZkWXBHsYzcPd712JbPzNeowqXy/go-ipfs-keystore"
-	"gx/ipfs/QmVmDhyTTUcQXFD1rRQ64fGLMSAoaQvNH3hwuaCFAPq2hy/errors"
-	logging "gx/ipfs/QmbkT7eMTyXfpeyB3ZMxxcxg7XH8t6uXp49jqzz4HB7BGF/go-log"
-	lockfile "gx/ipfs/QmdDpQpe8RHu9qBiFWPaBvSAUr2kRLWipEjzDqAMfWqwFQ/go-fs-lock"
-	"gx/ipfs/QmdcULN1WCzgoQmcCaUAmEhwcxHYsDrbZ2LvRJKCL8dMrK/go-homedir"
+	badgerds "github.com/ipfs/go-ds-badger"
+	lockfile "github.com/ipfs/go-fs-lock"
+	keystore "github.com/ipfs/go-ipfs-keystore"
+	logging "github.com/ipfs/go-log"
+	"github.com/mitchellh/go-homedir"
+	"github.com/pkg/errors"
 
 	"github.com/filecoin-project/go-filecoin/config"
 )
@@ -66,6 +66,33 @@ type FSRepo struct {
 }
 
 var _ Repo = (*FSRepo)(nil)
+
+// GetRepoDir is a helper for either using a user provided repoDir or fetching
+// the repoDir from FSRepoDir
+func GetRepoDir(repoDir string) string {
+	if repoDir == "" {
+		repoDir = FSRepoDir()
+	}
+	return repoDir
+}
+
+// FSRepoDir is a helper for getting the path to the repodir
+func FSRepoDir() string {
+	envRepoDir := os.Getenv("FIL_PATH")
+	if envRepoDir != "" {
+		return envRepoDir
+	}
+	return "~/.filecoin"
+}
+
+// CreateRepo provides a quick shorthand for initializing and opening a repo
+func CreateRepo(repoDir string, cfg *config.Config) (*FSRepo, error) {
+	repoDir = GetRepoDir(repoDir)
+	if err := InitFSRepo(repoDir, cfg); err != nil {
+		return nil, err
+	}
+	return OpenFSRepo(repoDir)
+}
 
 // OpenFSRepo opens an already initialized fsrepo at the given path
 func OpenFSRepo(p string) (*FSRepo, error) {
@@ -318,7 +345,7 @@ func (r *FSRepo) loadVersion() (uint, error) {
 func (r *FSRepo) openDatastore() error {
 	switch r.cfg.Datastore.Type {
 	case "badgerds":
-		ds, err := badgerds.NewDatastore(filepath.Join(r.path, r.cfg.Datastore.Path), nil)
+		ds, err := badgerds.NewDatastore(filepath.Join(r.path, r.cfg.Datastore.Path), badgerOptions())
 		if err != nil {
 			return err
 		}
@@ -344,7 +371,7 @@ func (r *FSRepo) openKeystore() error {
 }
 
 func (r *FSRepo) openChainDatastore() error {
-	ds, err := badgerds.NewDatastore(filepath.Join(r.path, chainDatastorePrefix), nil)
+	ds, err := badgerds.NewDatastore(filepath.Join(r.path, chainDatastorePrefix), badgerOptions())
 	if err != nil {
 		return err
 	}
@@ -356,7 +383,7 @@ func (r *FSRepo) openChainDatastore() error {
 
 func (r *FSRepo) openWalletDatastore() error {
 	// TODO: read wallet datastore info from config, use that to open it up
-	ds, err := badgerds.NewDatastore(filepath.Join(r.path, walletDatastorePrefix), nil)
+	ds, err := badgerds.NewDatastore(filepath.Join(r.path, walletDatastorePrefix), badgerOptions())
 	if err != nil {
 		return err
 	}
@@ -367,7 +394,7 @@ func (r *FSRepo) openWalletDatastore() error {
 }
 
 func (r *FSRepo) openDealsDatastore() error {
-	ds, err := badgerds.NewDatastore(filepath.Join(r.path, dealsDatastorePrefix), nil)
+	ds, err := badgerds.NewDatastore(filepath.Join(r.path, dealsDatastorePrefix), badgerOptions())
 	if err != nil {
 		return err
 	}
@@ -479,4 +506,10 @@ func APIAddrFromFile(apiFilePath string) (string, error) {
 // APIAddr reads the FSRepo's api file and returns the api address
 func (r *FSRepo) APIAddr() (string, error) {
 	return APIAddrFromFile(filepath.Join(filepath.Clean(r.path), APIFile))
+}
+
+func badgerOptions() *badgerds.Options {
+	result := &badgerds.DefaultOptions
+	result.Truncate = true
+	return result
 }

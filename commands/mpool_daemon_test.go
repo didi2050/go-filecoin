@@ -1,12 +1,12 @@
-package commands
+package commands_test
 
 import (
 	"strings"
 	"sync"
 	"testing"
 
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/assert"
-	"gx/ipfs/QmR8BauakNcBa3RbE4nbQu76PDiJgoQgz8AJdhJuiU4TAw/go-cid"
+	"github.com/ipfs/go-cid"
+	"github.com/stretchr/testify/assert"
 
 	"github.com/filecoin-project/go-filecoin/fixtures"
 	th "github.com/filecoin-project/go-filecoin/testhelpers"
@@ -15,6 +15,14 @@ import (
 func TestMpoolLs(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
+
+	sendMessage := func(d *th.TestDaemon, from string, to string) *th.Output {
+		return d.RunSuccess("message", "send",
+			"--from", from,
+			"--gas-price", "0", "--gas-limit", "300",
+			"--value=10", to,
+		)
+	}
 
 	t.Run("return all messages", func(t *testing.T) {
 		t.Parallel()
@@ -81,7 +89,7 @@ func TestMpoolShow(t *testing.T) {
 
 		msgCid := d.RunSuccess("message", "send",
 			"--from", fixtures.TestAddresses[0],
-			"--price", "0", "--limit", "300",
+			"--gas-price", "0", "--gas-limit", "300",
 			"--value=10", fixtures.TestAddresses[2],
 		).ReadStdoutTrimNewlines()
 
@@ -115,7 +123,7 @@ func TestMpoolRm(t *testing.T) {
 
 		msgCid := d.RunSuccess("message", "send",
 			"--from", fixtures.TestAddresses[0],
-			"--price", "0", "--limit", "300",
+			"--gas-price", "0", "--gas-limit", "300",
 			"--value=10", fixtures.TestAddresses[2],
 		).ReadStdoutTrimNewlines()
 
@@ -124,12 +132,4 @@ func TestMpoolRm(t *testing.T) {
 		out := d.RunSuccess("mpool", "ls").ReadStdoutTrimNewlines()
 		assert.Equal("", out)
 	})
-}
-
-func sendMessage(d *th.TestDaemon, from string, to string) *th.Output {
-	return d.RunSuccess("message", "send",
-		"--from", from,
-		"--price", "0", "--limit", "300",
-		"--value=10", to,
-	)
 }

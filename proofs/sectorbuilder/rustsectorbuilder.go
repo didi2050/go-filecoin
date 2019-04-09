@@ -1,3 +1,5 @@
+// +build !windows
+
 package sectorbuilder
 
 import (
@@ -8,15 +10,14 @@ import (
 	"time"
 	"unsafe"
 
+	bserv "github.com/ipfs/go-blockservice"
+	cid "github.com/ipfs/go-cid"
+	logging "github.com/ipfs/go-log"
+	"github.com/pkg/errors"
+
 	"github.com/filecoin-project/go-filecoin/address"
 	"github.com/filecoin-project/go-filecoin/proofs"
-
-	dag "gx/ipfs/QmNRAuGmvnVw8urHkUZQirhu42VTiZjVWASa2aTznEMmpP/go-merkledag"
-	"gx/ipfs/QmR8BauakNcBa3RbE4nbQu76PDiJgoQgz8AJdhJuiU4TAw/go-cid"
-	uio "gx/ipfs/QmRDWTzVdbHXdtat7tVJ7YC7kRaW7rTZTEF79yykcLYa49/go-unixfs/io"
-	"gx/ipfs/QmVmDhyTTUcQXFD1rRQ64fGLMSAoaQvNH3hwuaCFAPq2hy/errors"
-	bserv "gx/ipfs/QmZsGVGCqMCNzHLNMB6q4F6yyvomqf1VxwhJwSfgo1NGaF/go-blockservice"
-	logging "gx/ipfs/QmbkT7eMTyXfpeyB3ZMxxcxg7XH8t6uXp49jqzz4HB7BGF/go-log"
+	"github.com/filecoin-project/go-filecoin/proofs/sectorbuilder/bytesink"
 )
 
 // #cgo LDFLAGS: -L${SRCDIR}/../lib -lfilecoin_proofs
@@ -29,6 +30,10 @@ var log = logging.Logger("sectorbuilder") // nolint: deadcode
 // MaxNumStagedSectors configures the maximum number of staged sectors which can
 // be open and accepting data at any time.
 const MaxNumStagedSectors = 1
+
+// MaxTimeToWriteBytesToSink configures the maximum amount of time it should
+// take to copy user piece bytes from the provided Reader to the ByteSink.
+const MaxTimeToWriteBytesToSink = time.Second * 30
 
 // stagedSectorMetadata is a sector into which we write user piece-data before
 // sealing. Note: sectorID is unique across all staged and sealed sectors for a
@@ -153,49 +158,107 @@ func (sb *RustSectorBuilder) GetMaxUserBytesPerStagedSector() (numBytes uint64, 
 
 // AddPiece writes the given piece into an unsealed sector and returns the id
 // of that sector.
-func (sb *RustSectorBuilder) AddPiece(ctx context.Context, pi *PieceInfo) (sectorID uint64, err error) {
+func (sb *RustSectorBuilder) AddPiece(ctx context.Context, pieceRef cid.Cid, pieceSize uint64, pieceReader io.Reader) (sectorID uint64, retErr error) {
 	defer elapsed("AddPiece")()
 
-	pieceKey := pi.Ref.String()
-	dagService := dag.NewDAGService(sb.blockService)
+	ctx, cancel := context.WithTimeout(ctx, MaxTimeToWriteBytesToSink)
+	defer cancel()
 
-	rootIpldNode, err := dagService.Get(ctx, pi.Ref)
+	sink, err := bytesink.NewFifo()
 	if err != nil {
 		return 0, err
 	}
 
-	r, err := uio.NewDagReader(ctx, rootIpldNode, dagService)
-	if err != nil {
-		return 0, err
+	// errCh holds any error encountered when streaming bytes or making the CGO
+	// call. The channel is buffered so that the goroutines can exit, which will
+	// close the pipe, which unblocks the CGO call.
+	errCh := make(chan error, 2)
+	defer close(errCh)
+
+	// sectorIDCh receives a value if the CGO call indicates that the client
+	// piece has successfully been added to a sector. The channel is buffered
+	// so that the goroutine can exit if a value is sent to errCh before the
+	// CGO call completes.
+	sectorIDCh := make(chan uint64, 1)
+	defer close(sectorIDCh)
+
+	// goroutine attempts to copy bytes from piece's reader to the sink
+	go func() {
+		// opening the sink blocks the goroutine until a reader is opened on the
+		// other end of the FIFO pipe
+		err := sink.Open()
+		if err != nil {
+			errCh <- errors.Wrap(err, "failed to open sink")
+			return
+		}
+
+		// closing the sink signals to the reader that we're done writing, which
+		// unblocks the reader
+		defer func() {
+			err := sink.Close()
+			if err != nil {
+				log.Warningf("failed to close sink: %s", err)
+			}
+		}()
+
+		n, err := io.Copy(sink, pieceReader)
+		if err != nil {
+			errCh <- errors.Wrap(err, "failed to copy to pipe")
+			return
+		}
+
+		if uint64(n) != pieceSize {
+			errCh <- errors.Errorf("expected to write %d bytes but wrote %d", pieceSize, n)
+			return
+		}
+	}()
+
+	// goroutine makes CGO call, which blocks until FIFO pipe opened for writing
+	// from within other goroutine
+	go func() {
+		cPieceKey := C.CString(pieceRef.String())
+		defer C.free(unsafe.Pointer(cPieceKey))
+
+		cSinkPath := C.CString(sink.ID())
+		defer C.free(unsafe.Pointer(cSinkPath))
+
+		resPtr := (*C.AddPieceResponse)(unsafe.Pointer(C.add_piece(
+			(*C.SectorBuilder)(sb.ptr),
+			cPieceKey,
+			C.uint64_t(pieceSize),
+			cSinkPath,
+		)))
+		defer C.destroy_add_piece_response(resPtr)
+
+		if resPtr.status_code != 0 {
+			msg := "CGO add_piece returned an error (error_msg=%s, sinkPath=%s)"
+			log.Errorf(msg, C.GoString(resPtr.error_msg), sink.ID())
+			errCh <- errors.New(C.GoString(resPtr.error_msg))
+			return
+		}
+
+		sectorIDCh <- uint64(resPtr.sector_id)
+	}()
+
+	select {
+	case <-ctx.Done():
+		errStr := "context completed before CGO call could return"
+		strFmt := "%s (sinkPath=%s)"
+		log.Errorf(strFmt, errStr, sink.ID())
+
+		return 0, errors.New(errStr)
+	case err := <-errCh:
+		errStr := "error streaming piece-bytes"
+		strFmt := "%s (sinkPath=%s)"
+		log.Errorf(strFmt, errStr, sink.ID())
+
+		return 0, errors.Wrap(err, errStr)
+	case sectorID := <-sectorIDCh:
+		go sb.sealStatusPoller.addSectorID(sectorID)
+		log.Infof("add piece complete (pieceRef=%s, sectorID=%d, sinkPath=%s)", pieceRef.String(), sectorID, sink.ID())
+
+		return sectorID, nil
 	}
-
-	pieceBytes := make([]byte, pi.Size)
-	_, err = r.Read(pieceBytes)
-	if err != nil {
-		return 0, errors.Wrapf(err, "error reading piece bytes into buffer")
-	}
-
-	cPieceKey := C.CString(pieceKey)
-	defer C.free(unsafe.Pointer(cPieceKey))
-
-	cPieceBytes := C.CBytes(pieceBytes)
-	defer C.free(cPieceBytes)
-
-	resPtr := (*C.AddPieceResponse)(unsafe.Pointer(C.add_piece(
-		(*C.SectorBuilder)(sb.ptr),
-		cPieceKey,
-		(*C.uint8_t)(cPieceBytes),
-		C.size_t(len(pieceBytes)),
-	)))
-	defer C.destroy_add_piece_response(resPtr)
-
-	if resPtr.status_code != 0 {
-		return 0, errors.New(C.GoString(resPtr.error_msg))
-	}
-
-	go sb.sealStatusPoller.addSectorID(uint64(resPtr.sector_id))
-
-	return uint64(resPtr.sector_id), nil
 }
 
 func (sb *RustSectorBuilder) findSealedSectorMetadata(sectorID uint64) (*SealedSectorMetadata, error) {
@@ -305,9 +368,9 @@ func (sb *RustSectorBuilder) Close() error {
 	return nil
 }
 
-// GeneratePoST produces a proof-of-spacetime for the provided commitment replicas.
-func (sb *RustSectorBuilder) GeneratePoST(req GeneratePoSTRequest) (GeneratePoSTResponse, error) {
-	defer elapsed("GeneratePoST")()
+// GeneratePoSt produces a proof-of-spacetime for the provided commitment replicas.
+func (sb *RustSectorBuilder) GeneratePoSt(req GeneratePoStRequest) (GeneratePoStResponse, error) {
+	defer elapsed("GeneratePoSt")()
 
 	// flattening the byte slice makes it easier to copy into the C heap
 	flattened := make([]byte, 32*len(req.CommRs))
@@ -321,23 +384,54 @@ func (sb *RustSectorBuilder) GeneratePoST(req GeneratePoSTRequest) (GeneratePoST
 
 	challengeSeedPtr := unsafe.Pointer(&(req.ChallengeSeed)[0])
 
-	// a mutable pointer to a GeneratePoSTResponse C-struct
-	resPtr := (*C.GeneratePoSTResponse)(unsafe.Pointer(C.generate_post((*C.SectorBuilder)(sb.ptr), (*C.uint8_t)(cflattened), C.size_t(len(flattened)), (*[32]C.uint8_t)(challengeSeedPtr))))
+	// a mutable pointer to a GeneratePoStResponse C-struct
+	resPtr := (*C.GeneratePoStResponse)(unsafe.Pointer(C.generate_post((*C.SectorBuilder)(sb.ptr), (*C.uint8_t)(cflattened), C.size_t(len(flattened)), (*[32]C.uint8_t)(challengeSeedPtr))))
 	defer C.destroy_generate_post_response(resPtr)
 
 	if resPtr.status_code != 0 {
-		return GeneratePoSTResponse{}, errors.New(C.GoString(resPtr.error_msg))
+		return GeneratePoStResponse{}, errors.New(C.GoString(resPtr.error_msg))
 	}
 
-	// copy proof bytes back to Go from C
-	proofSlice := C.GoBytes(unsafe.Pointer(&resPtr.proof[0]), C.int(proofs.SnarkBytesLen))
-	var proof proofs.PoStProof
-	copy(proof[:], proofSlice)
+	proofs, err := goPoStProofs(resPtr.flattened_proofs_ptr, resPtr.flattened_proofs_len)
+	if err != nil {
+		return GeneratePoStResponse{}, err
+	}
 
-	return GeneratePoSTResponse{
-		Proof:  proof,
+	return GeneratePoStResponse{
+		Proofs: proofs,
 		Faults: goUint64s(resPtr.faults_ptr, resPtr.faults_len),
 	}, nil
+}
+
+// goPoStProofs accepts a pointer to a C-allocated byte array and a size and
+// produces a Go-managed slice of PoStProof. Note that this function copies
+// values into the Go heap from C.
+func goPoStProofs(src *C.uint8_t, size C.size_t) ([]proofs.PoStProof, error) {
+	chunkSize := int(proofs.PoStBytesLen)
+	arrSize := int(size)
+
+	if src == nil {
+		return []proofs.PoStProof{}, nil
+	}
+
+	if arrSize%chunkSize != 0 {
+		msg := "PoSt proof array invalid size (arrSize=%d % PoStBytesLen=%d != 0)"
+		return nil, errors.Errorf(msg, arrSize, proofs.PoStBytesLen)
+	}
+
+	out := make([]proofs.PoStProof, arrSize/chunkSize)
+
+	// Create a slice from a pointer to an array on the C heap by slicing to
+	// the appropriate size. We can then copy from this slice into the Go heap.
+	//
+	// https://github.com/golang/go/wiki/cgo#turning-c-arrays-into-go-slices
+	tmp := (*(*[1 << 30]byte)(unsafe.Pointer(src)))[:size:size]
+
+	for i := 0; i < len(out); i++ {
+		copy(out[i][:], tmp[i*chunkSize:(i+1)*chunkSize])
+	}
+
+	return out, nil
 }
 
 // goUint64s accepts a pointer to a C-allocated uint64 and a size and produces

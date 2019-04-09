@@ -3,17 +3,19 @@ package tests
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"io"
 	"io/ioutil"
 	"math/big"
 	"testing"
 	"time"
 
-	"gx/ipfs/QmQmhotPUzVrMEWNK3x1R5jQ5ZHWyL7tVUrmRPjrBrvyCb/go-ipfs-files"
-	logging "gx/ipfs/QmbkT7eMTyXfpeyB3ZMxxcxg7XH8t6uXp49jqzz4HB7BGF/go-log"
+	"github.com/ipfs/go-ipfs-files"
+	logging "github.com/ipfs/go-log"
 
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/require"
+	"github.com/stretchr/testify/require"
 
-	"github.com/filecoin-project/go-filecoin/protocol/storage"
+	"github.com/filecoin-project/go-filecoin/protocol/storage/storagedeal"
 	th "github.com/filecoin-project/go-filecoin/testhelpers"
 	"github.com/filecoin-project/go-filecoin/tools/fast"
 	"github.com/filecoin-project/go-filecoin/tools/fast/series"
@@ -26,12 +28,13 @@ func init() {
 	logging.SetDebugLogging()
 }
 
-// TestRetrieval exercises storing and retreiving with the filecoin protocols
+// TestRetrieval exercises storing and retrieving with the filecoin protocols
 func TestRetrieval(t *testing.T) {
-	t.SkipNow()
+	blocktime := time.Second * 5
+	sectorSize := int64(1016)
 
-	// This test should run in 500 seconds, and no longer
-	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(time.Second*500))
+	// This test should run in 20 block times, with 120 seconds for sealing, and no longer
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(20*blocktime).Add(120*time.Second))
 	defer cancel()
 
 	require := require.New(t)
@@ -47,46 +50,49 @@ func TestRetrieval(t *testing.T) {
 	// Teardown will shutdown all running processes the environment knows about
 	// and cleanup anything the evironment setup. This includes the directory
 	// the environment was created to use.
-	defer env.Teardown(ctx)
+	defer func() {
+		require.NoError(env.Teardown(ctx))
+	}()
 
 	// Setup options for nodes.
 	options := make(map[string]string)
-	options[localplugin.AttrLogJSON] = "1"                               // Enable JSON logs
-	options[localplugin.AttrLogLevel] = "5"                              // Set log level to Debug
+	options[localplugin.AttrLogJSON] = "0"                               // Disable JSON logs
+	options[localplugin.AttrLogLevel] = "4"                              // Set log level to Info
 	options[localplugin.AttrUseSmallSectors] = "true"                    // Enable small sectors
 	options[localplugin.AttrFilecoinBinary] = th.MustGetFilecoinBinary() // Enable small sectors
 
-	// Setup nodes used for the test
-	genesis, err := env.NewProcess(ctx, localplugin.PluginName, options, fast.EnvironmentOpts{})
-	require.NoError(err)
+	ctx = series.SetCtxSleepDelay(ctx, blocktime)
 
-	miner, err := env.NewProcess(ctx, localplugin.PluginName, options, fast.EnvironmentOpts{})
-	require.NoError(err)
-
-	client, err := env.NewProcess(ctx, localplugin.PluginName, options, fast.EnvironmentOpts{})
-	require.NoError(err)
-
-	// Start setting up the nodes
 	genesisURI := env.GenesisCar()
 	genesisMiner, err := env.GenesisMiner()
 	require.NoError(err)
 
+	fastenvOpts := fast.EnvironmentOpts{
+		InitOpts:   []fast.ProcessInitOption{fast.POGenesisFile(genesisURI)},
+		DaemonOpts: []fast.ProcessDaemonOption{fast.POBlockTime(blocktime)},
+	}
+
+	// Setup nodes used for the test
+	genesis, err := env.NewProcess(ctx, localplugin.PluginName, options, fastenvOpts)
+	require.NoError(err)
+
+	miner, err := env.NewProcess(ctx, localplugin.PluginName, options, fastenvOpts)
+	require.NoError(err)
+
+	client, err := env.NewProcess(ctx, localplugin.PluginName, options, fastenvOpts)
+	require.NoError(err)
+
+	// Start setting up the nodes
 	// Setup Genesis
-	err = series.SetupGenesisNode(ctx, genesis, genesisURI, genesisMiner.Address, files.NewReaderFile(genesisMiner.Owner))
+	err = series.SetupGenesisNode(ctx, genesis, genesisMiner.Address, files.NewReaderFile(genesisMiner.Owner))
 	require.NoError(err)
 
 	// Start Miner
-	_, err = miner.InitDaemon(ctx, "--genesisfile", genesisURI)
-	require.NoError(err)
-
-	_, err = miner.StartDaemon(ctx, true)
+	err = series.InitAndStart(ctx, miner)
 	require.NoError(err)
 
 	// Start Client
-	_, err = client.InitDaemon(ctx, "--genesisfile", genesisURI)
-	require.NoError(err)
-
-	_, err = client.StartDaemon(ctx, true)
+	err = series.InitAndStart(ctx, client)
 	require.NoError(err)
 
 	// Connect everything to the genesis node so it can issue filecoin when needed
@@ -98,43 +104,39 @@ func TestRetrieval(t *testing.T) {
 
 	// Everyone needs FIL to deal with gas costs and make sure their wallets
 	// exists (sending FIL to a wallet addr creates it)
-	err = series.SendFilecoinDefaults(ctx, genesis, miner, 1000)
+	err = series.SendFilecoinDefaults(ctx, genesis, miner, 100000)
 	require.NoError(err)
 
-	err = series.SendFilecoinDefaults(ctx, genesis, client, 1000)
+	err = series.SendFilecoinDefaults(ctx, genesis, client, 100000)
 	require.NoError(err)
+
+	// Start retrieval
+	// Start retrieval
+	// Start retrieval
+
+	pledge := uint64(10)                    // sectors
+	collateral := big.NewInt(500)           // FIL
+	price := big.NewFloat(0.000000001)      // price per byte/block
+	expiry := big.NewInt(24 * 60 * 60 / 30) // ~24 hours
 
 	// Create a miner on the miner node
-	_, err = miner.MinerCreate(ctx, 10, big.NewInt(10), fast.AOPrice(big.NewFloat(1.0)), fast.AOLimit(300))
-	require.NoError(err)
-
-	//TODO(tperson): I don't think a miner is valid unless it has power. Does
-	// that mean we need to store before we can mine to be valid?
-
-	err = miner.MiningStart(ctx)
-	require.NoError(err)
-
-	// Start retrieval
-	// Start retrieval
-	// Start retrieval
-
-	// Set a price for our miner, and returns the created ask
-	ask, err := series.SetPriceGetAsk(ctx, miner, big.NewFloat(1.0), big.NewInt(1000))
+	ask, err := series.CreateMinerWithAsk(ctx, miner, pledge, collateral, price, expiry)
 	require.NoError(err)
 
 	// Connect the client and the miner
-	err = series.Connect(ctx, miner, client)
+	err = series.Connect(ctx, client, miner)
 	require.NoError(err)
 
 	// Store some data with the miner with the given ask, returns the cid for
 	// the imported data, and the deal which was created
-	data := []byte("Hello World!")
-	dataReader := bytes.NewReader(data)
+	var data bytes.Buffer
+	dataReader := io.LimitReader(rand.Reader, sectorSize)
+	dataReader = io.TeeReader(dataReader, &data)
 	dcid, deal, err := series.ImportAndStore(ctx, client, ask, files.NewReaderFile(dataReader))
 	require.NoError(err)
 
 	// Wait for the deal to be posted
-	err = series.WaitForDealState(ctx, client, deal, storage.Posted)
+	err = series.WaitForDealState(ctx, client, deal, storagedeal.Posted)
 	require.NoError(err)
 
 	// Retrieve the stored piece of data
@@ -144,5 +146,5 @@ func TestRetrieval(t *testing.T) {
 	// Verify that it's all the same
 	retrievedData, err := ioutil.ReadAll(reader)
 	require.NoError(err)
-	require.Equal(data, retrievedData)
+	require.Equal(data.Bytes(), retrievedData)
 }

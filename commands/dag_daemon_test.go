@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"testing"
 
-	cbor "gx/ipfs/QmcZLyosDwMKdB6NLRsiss9HXzDPhVhhRtPy67JFKTDQDX/go-ipld-cbor"
+	cbor "github.com/ipfs/go-ipld-cbor"
 
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/assert"
+	"github.com/stretchr/testify/assert"
 
 	th "github.com/filecoin-project/go-filecoin/testhelpers"
 	"github.com/filecoin-project/go-filecoin/types"
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/require"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDagDaemon(t *testing.T) {
@@ -47,7 +47,7 @@ func TestDagDaemon(t *testing.T) {
 		// CBOR decode the IPLD node's raw data into a Filecoin block
 
 		var actual types.Block
-		cbor.DecodeInto(ipldnode.RawData(), &actual)
+		cbor.DecodeInto(ipldnode.RawData(), &actual) // nolint: errcheck
 		// assert.NoError(err)
 		// TODO Enable ^^ and debug why Block.Miner isn't being de/encoded properly.
 

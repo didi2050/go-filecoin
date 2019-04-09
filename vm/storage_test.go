@@ -3,16 +3,16 @@ package vm
 import (
 	"testing"
 
-	"gx/ipfs/QmRu7tiRnFk9mMPpVECQTBQJqXtmG132jJxA1w9A7TtpBz/go-ipfs-blockstore"
-	"gx/ipfs/QmUadX5EcvrBmxAV9sE7wUWtWSqxns5K84qKJBixmcT1w9/go-datastore"
-	cbor "gx/ipfs/QmcZLyosDwMKdB6NLRsiss9HXzDPhVhhRtPy67JFKTDQDX/go-ipld-cbor"
+	"github.com/ipfs/go-datastore"
+	"github.com/ipfs/go-ipfs-blockstore"
+	cbor "github.com/ipfs/go-ipld-cbor"
 
 	"github.com/filecoin-project/go-filecoin/actor"
 	"github.com/filecoin-project/go-filecoin/address"
 	"github.com/filecoin-project/go-filecoin/exec"
 	"github.com/filecoin-project/go-filecoin/types"
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/assert"
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGetAndPutWithEmptyStorage(t *testing.T) {
@@ -237,7 +237,7 @@ func TestDatastoreBacking(t *testing.T) {
 		require.NoError(err)
 
 		// commit the change
-		stage.Commit(cid, stage.Head())
+		assert.NoError(stage.Commit(cid, stage.Head()))
 
 		// flush the change
 		err = storage.Flush()
@@ -264,7 +264,7 @@ func TestDatastoreBacking(t *testing.T) {
 		require.NoError(err)
 
 		// only commit the second change
-		stage.Commit(cid2, stage.Head())
+		assert.NoError(stage.Commit(cid2, stage.Head()))
 
 		// flush the change
 		err = storage.Flush()
@@ -298,7 +298,7 @@ func TestDatastoreBacking(t *testing.T) {
 		require.NoError(err)
 
 		// only commit the second change
-		stage.Commit(cid2, stage.Head())
+		assert.NoError(stage.Commit(cid2, stage.Head()))
 
 		// flush the change
 		err = storage.Flush()
@@ -356,7 +356,7 @@ func TestValidationAndPruning(t *testing.T) {
 		require.NoError(err)
 
 		// only commit the second change
-		stage.Commit(cid2, stage.Head())
+		assert.NoError(stage.Commit(cid2, stage.Head()))
 
 		// Prune the stage
 		err = stage.Prune()

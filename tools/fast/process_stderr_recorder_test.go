@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	iptb "github.com/ipfs/iptb/testbed"
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/assert"
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	mockplugin "github.com/filecoin-project/go-filecoin/tools/iptb-plugins/filecoin/mock"
 )
@@ -31,7 +31,7 @@ func TestStartLogCapture(t *testing.T) {
 	require.True(ok)
 
 	mfc := NewFilecoinProcess(ctx, fc, EnvironmentOpts{})
-	mfc.setupStderrCapturing()
+	err = mfc.setupStderrCapturing()
 	require.NoError(err)
 
 	t.Run("test capture logs", func(t *testing.T) {
@@ -52,6 +52,6 @@ func TestStartLogCapture(t *testing.T) {
 		require.Equal("hello\n", string(bb))
 	})
 
-	mfc.teardownStderrCapturing()
+	err = mfc.teardownStderrCapturing()
 	require.NoError(err)
 }

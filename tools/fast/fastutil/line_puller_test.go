@@ -6,7 +6,7 @@ import (
 	"io"
 	"testing"
 
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/require"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLinePuller(t *testing.T) {
@@ -41,7 +41,7 @@ func TestLinePuller(t *testing.T) {
 
 		lp := NewLinePuller(&source, &sink)
 
-		writeLines(0, 1000, &source, &expected)
+		require.NoError(t, writeLines(0, 1000, &source, &expected))
 
 		err := lp.Pull()
 		require.NoError(t, err)

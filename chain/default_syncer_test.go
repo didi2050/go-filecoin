@@ -2,26 +2,26 @@ package chain_test
 
 import (
 	"context"
-	"github.com/filecoin-project/go-filecoin/chain"
 	"testing"
 
-	"gx/ipfs/QmNf3wujpV2Y7Lnj2hy2UrmuX8bhMDStRHbnSLh7Ypf36h/go-hamt-ipld"
-	"gx/ipfs/QmR8BauakNcBa3RbE4nbQu76PDiJgoQgz8AJdhJuiU4TAw/go-cid"
-	bstore "gx/ipfs/QmRu7tiRnFk9mMPpVECQTBQJqXtmG132jJxA1w9A7TtpBz/go-ipfs-blockstore"
-	"gx/ipfs/QmTu65MVbemtUxJEWgsTtzv9Zv9P8rvmqNA4eG9TrTRGYc/go-libp2p-peer"
+	"github.com/ipfs/go-cid"
+	"github.com/ipfs/go-hamt-ipld"
+	bstore "github.com/ipfs/go-ipfs-blockstore"
+	"github.com/libp2p/go-libp2p-peer"
 
 	"github.com/filecoin-project/go-filecoin/actor/builtin"
 	"github.com/filecoin-project/go-filecoin/address"
+	"github.com/filecoin-project/go-filecoin/chain"
 	"github.com/filecoin-project/go-filecoin/consensus"
 	"github.com/filecoin-project/go-filecoin/gengen/util"
 	"github.com/filecoin-project/go-filecoin/proofs"
 	"github.com/filecoin-project/go-filecoin/repo"
 	"github.com/filecoin-project/go-filecoin/state"
-	"github.com/filecoin-project/go-filecoin/testhelpers"
+	th "github.com/filecoin-project/go-filecoin/testhelpers"
 	"github.com/filecoin-project/go-filecoin/types"
 
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/assert"
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -51,20 +51,29 @@ var (
 )
 
 func init() {
-	minerAddress = address.MakeTestAddress("miner")
-	minerOwnerAddress = address.MakeTestAddress("minerOwner")
-	minerPeerID = testhelpers.RequireRandomPeerID()
+	var err error
+	minerAddress, err = address.NewActorAddress([]byte("miner"))
+	if err != nil {
+		panic(err)
+	}
+	minerOwnerAddress, err = address.NewActorAddress([]byte("minerOwner"))
+	if err != nil {
+		panic(err)
+	}
+	minerPeerID, err = th.RandPeerID()
+	if err != nil {
+		panic(err)
+	}
 
 	// Set up the test chain
 	bs := bstore.NewBlockstore(repo.NewInMemoryRepo().Datastore())
 	cst := hamt.NewCborStore()
-	var err error
 	genesis, err = initGenesis(cst, bs)
 	if err != nil {
 		panic(err)
 	}
 	genCid = genesis.Cid()
-	genTS = chain.MustNewTipSet(genesis)
+	genTS = th.MustNewTipSet(genesis)
 
 	// mock state root cids
 	cidGetter = types.NewCidForTestGetter()
@@ -81,55 +90,65 @@ func requireSetTestChain(require *require.Assertions, con consensus.Protocol, mo
 	// see powerTableForWidenTest
 	minerPower := uint64(25)
 	totalPower := uint64(100)
+	mockSigner, _ := types.NewMockSignersAndKeyInfo(1)
+	mockSignerPubKey := mockSigner.PubKeys[0]
 
-	link1blk1 = chain.RequireMkFakeChildWithCon(require,
-		chain.FakeChildParams{Parent: genTS, GenesisCid: genCid, StateRoot: genStateRoot, Consensus: con, MinerAddr: minerAddress})
-	// set up tickets
-	link1blk1.Proof, link1blk1.Ticket, err = chain.MakeProofAndWinningTicket(minerAddress, minerPower, totalPower)
+	fakeChildParams := th.FakeChildParams{
+		Parent:      genTS,
+		GenesisCid:  genCid,
+		StateRoot:   genStateRoot,
+		Consensus:   con,
+		MinerAddr:   minerAddress,
+		MinerPubKey: mockSignerPubKey,
+		Signer:      mockSigner,
+	}
+
+	link1blk1 = th.RequireMkFakeChildWithCon(require, fakeChildParams)
+	link1blk1.Proof, link1blk1.Ticket, err = th.MakeProofAndWinningTicket(mockSignerPubKey, minerPower, totalPower, mockSigner)
 	require.NoError(err)
 
-	link1blk2 = chain.RequireMkFakeChildWithCon(require,
-		chain.FakeChildParams{Parent: genTS, GenesisCid: genCid, StateRoot: genStateRoot, Consensus: con, MinerAddr: minerAddress})
-	// set up tickets
-	link1blk2.Proof, link1blk2.Ticket, err = chain.MakeProofAndWinningTicket(minerAddress, minerPower, totalPower)
+	link1blk2 = th.RequireMkFakeChildWithCon(require, fakeChildParams)
+	link1blk2.Proof, link1blk2.Ticket, err = th.MakeProofAndWinningTicket(mockSignerPubKey, minerPower, totalPower, mockSigner)
 	require.NoError(err)
 
-	link1 = testhelpers.RequireNewTipSet(require, link1blk1, link1blk2)
+	link1 = th.RequireNewTipSet(require, link1blk1, link1blk2)
 
 	if mockStateRoots {
 		link1State = cidGetter()
 	} else {
 		link1State = genStateRoot
 	}
-	link2blk1 = chain.RequireMkFakeChildWithCon(require,
-		chain.FakeChildParams{Parent: link1, GenesisCid: genCid, StateRoot: link1State, Nonce: uint64(0),
-			NullBlockCount: uint64(0), Consensus: con, MinerAddr: minerAddress})
-	link2blk1.Proof, link2blk1.Ticket, err = chain.MakeProofAndWinningTicket(minerAddress, minerPower, totalPower)
+
+	fakeChildParams.Parent = link1
+	fakeChildParams.StateRoot = link1State
+	link2blk1 = th.RequireMkFakeChildWithCon(require, fakeChildParams)
+	link2blk1.Proof, link2blk1.Ticket, err = th.MakeProofAndWinningTicket(mockSignerPubKey, minerPower, totalPower, mockSigner)
 	require.NoError(err)
 
-	link2blk2 = chain.RequireMkFakeChildWithCon(require,
-		chain.FakeChildParams{Parent: link1, GenesisCid: genCid, StateRoot: link1State, Consensus: con, MinerAddr: minerAddress})
-	link2blk2.Proof, link2blk2.Ticket, err = chain.MakeProofAndWinningTicket(minerAddress, minerPower, totalPower)
+	link2blk2 = th.RequireMkFakeChildWithCon(require, fakeChildParams)
+	link2blk2.Proof, link2blk2.Ticket, err = th.MakeProofAndWinningTicket(mockSignerPubKey, minerPower, totalPower, mockSigner)
 	require.NoError(err)
 
-	link2blk3 = chain.RequireMkFakeChildWithCon(require,
-		chain.FakeChildParams{Parent: link1, GenesisCid: genCid, StateRoot: link1State, Nonce: uint64(1), Consensus: con, MinerAddr: minerAddress})
-	link2blk3.Proof, link2blk3.Ticket, err = chain.MakeProofAndWinningTicket(minerAddress, minerPower, totalPower)
+	fakeChildParams.Nonce = uint64(1)
+	link2blk3 = th.RequireMkFakeChildWithCon(require, fakeChildParams)
+	link2blk3.Proof, link2blk3.Ticket, err = th.MakeProofAndWinningTicket(mockSignerPubKey, minerPower, totalPower, mockSigner)
 	require.NoError(err)
 
-	link2 = testhelpers.RequireNewTipSet(require, link2blk1, link2blk2, link2blk3)
+	link2 = th.RequireNewTipSet(require, link2blk1, link2blk2, link2blk3)
 
 	if mockStateRoots {
 		link2State = cidGetter()
 	} else {
 		link2State = genStateRoot
 	}
-	link3blk1 = chain.RequireMkFakeChildWithCon(require,
-		chain.FakeChildParams{Parent: link2, GenesisCid: genCid, StateRoot: link2State, Consensus: con, MinerAddr: minerAddress})
-	link3blk1.Proof, link3blk1.Ticket, err = chain.MakeProofAndWinningTicket(minerAddress, minerPower, totalPower)
+
+	fakeChildParams.Parent = link2
+	fakeChildParams.StateRoot = link2State
+	link3blk1 = th.RequireMkFakeChildWithCon(require, fakeChildParams)
+	link3blk1.Proof, link3blk1.Ticket, err = th.MakeProofAndWinningTicket(mockSignerPubKey, minerPower, totalPower, mockSigner)
 	require.NoError(err)
 
-	link3 = testhelpers.RequireNewTipSet(require, link3blk1)
+	link3 = th.RequireNewTipSet(require, link3blk1)
 
 	if mockStateRoots {
 		link3State = cidGetter()
@@ -137,17 +156,19 @@ func requireSetTestChain(require *require.Assertions, con consensus.Protocol, mo
 		link3State = genStateRoot
 	}
 
-	link4blk1 = chain.RequireMkFakeChildWithCon(require,
-		chain.FakeChildParams{Parent: link3, GenesisCid: genCid, StateRoot: link3State, NullBlockCount: uint64(2), Consensus: con, MinerAddr: minerAddress}) // 2 null blks between link 3 and 4
-	link4blk1.Proof, link4blk1.Ticket, err = chain.MakeProofAndWinningTicket(minerAddress, minerPower, totalPower)
+	fakeChildParams.Parent = link3
+	fakeChildParams.StateRoot = link3State
+	fakeChildParams.NullBlockCount = uint64(2)
+	link4blk1 = th.RequireMkFakeChildWithCon(require, fakeChildParams)
+	link4blk1.Proof, link4blk1.Ticket, err = th.MakeProofAndWinningTicket(mockSignerPubKey, minerPower, totalPower, mockSigner)
 	require.NoError(err)
 
-	link4blk2 = chain.RequireMkFakeChildWithCon(require,
-		chain.FakeChildParams{Parent: link3, GenesisCid: genCid, StateRoot: link3State, Nonce: uint64(1), NullBlockCount: uint64(2), Consensus: con, MinerAddr: minerAddress})
-	link4blk2.Proof, link4blk2.Ticket, err = chain.MakeProofAndWinningTicket(minerAddress, minerPower, totalPower)
+	fakeChildParams.Nonce = uint64(1)
+	link4blk2 = th.RequireMkFakeChildWithCon(require, fakeChildParams)
+	link4blk2.Proof, link4blk2.Ticket, err = th.MakeProofAndWinningTicket(mockSignerPubKey, minerPower, totalPower, mockSigner)
 	require.NoError(err)
 
-	link4 = testhelpers.RequireNewTipSet(require, link4blk1, link4blk2)
+	link4 = th.RequireNewTipSet(require, link4blk1, link4blk2)
 
 	if mockStateRoots {
 		link4State = cidGetter()
@@ -157,24 +178,33 @@ func requireSetTestChain(require *require.Assertions, con consensus.Protocol, mo
 }
 
 // loadSyncerFromRepo creates a store and syncer from an existing repo.
-func loadSyncerFromRepo(require *require.Assertions, r repo.Repo) (*chain.DefaultSyncer, *hamt.CborIpldStore) {
-	powerTable := &testhelpers.TestView{}
+func loadSyncerFromRepo(require *require.Assertions, r repo.Repo) (*chain.DefaultSyncer, *th.TestFetcher) {
+	powerTable := &th.TestView{}
 	bs := bstore.NewBlockstore(r.Datastore())
 	cst := hamt.NewCborStore()
 	verifier := proofs.NewFakeVerifier(true, nil)
-	con := consensus.NewExpected(cst, bs, testhelpers.NewTestProcessor(), powerTable, genCid, verifier)
-	syncer, testchain, cst, _ := initSyncTest(require, con, initGenesis, cst, bs, r)
-	ctx := context.Background()
-	err := testchain.Load(ctx)
+	con := consensus.NewExpected(cst, bs, th.NewTestProcessor(), powerTable, genCid, verifier)
+
+	calcGenBlk, err := initGenesis(cst, bs) // flushes state
 	require.NoError(err)
-	return syncer, cst
+	calcGenBlk.StateRoot = genStateRoot
+	chainDS := r.ChainDatastore()
+	chainStore := chain.NewDefaultStore(chainDS, cst, calcGenBlk.Cid())
+
+	blockSource := th.NewTestFetcher()
+	syncer := chain.NewDefaultSyncer(cst, con, chainStore, blockSource) // note we use same cst for on and offline for tests
+
+	ctx := context.Background()
+	err = chainStore.Load(ctx)
+	require.NoError(err)
+	return syncer, blockSource
 }
 
 // initSyncTestDefault creates and returns the datastructures (chain store, syncer, etc)
 // needed to run tests.  It also sets the global test variables appropriately.
-func initSyncTestDefault(require *require.Assertions) (*chain.DefaultSyncer, chain.Store, *hamt.CborIpldStore, repo.Repo) {
-	processor := testhelpers.NewTestProcessor()
-	powerTable := &testhelpers.TestView{}
+func initSyncTestDefault(require *require.Assertions) (*chain.DefaultSyncer, chain.Store, repo.Repo, *th.TestFetcher) {
+	processor := th.NewTestProcessor()
+	powerTable := &th.TestView{}
 	r := repo.NewInMemoryRepo()
 	bs := bstore.NewBlockstore(r.Datastore())
 	cst := hamt.NewCborStore()
@@ -186,45 +216,44 @@ func initSyncTestDefault(require *require.Assertions) (*chain.DefaultSyncer, cha
 
 // initSyncTestWithPowerTable creates and returns the datastructures (chain store, syncer, etc)
 // needed to run tests.  It also sets the global test variables appropriately.
-func initSyncTestWithPowerTable(require *require.Assertions, powerTable consensus.PowerTableView) (*chain.DefaultSyncer, chain.Store, *hamt.CborIpldStore, consensus.Protocol) {
-	processor := testhelpers.NewTestProcessor()
+func initSyncTestWithPowerTable(require *require.Assertions, powerTable consensus.PowerTableView) (*chain.DefaultSyncer, chain.Store, consensus.Protocol, *th.TestFetcher) {
+	processor := th.NewTestProcessor()
 	r := repo.NewInMemoryRepo()
 	bs := bstore.NewBlockstore(r.Datastore())
 	cst := hamt.NewCborStore()
 	verifier := proofs.NewFakeVerifier(true, nil)
 	con := consensus.NewExpected(cst, bs, processor, powerTable, genCid, verifier)
 	requireSetTestChain(require, con, false)
-	sync, testchain, cst, _ := initSyncTest(require, con, initGenesis, cst, bs, r)
-	return sync, testchain, cst, con
+	sync, testchain, _, fetcher := initSyncTest(require, con, initGenesis, cst, bs, r)
+	return sync, testchain, con, fetcher
 }
 
-func initSyncTest(require *require.Assertions, con consensus.Protocol, genFunc func(cst *hamt.CborIpldStore, bs bstore.Blockstore) (*types.Block, error), cst *hamt.CborIpldStore, bs bstore.Blockstore, r repo.Repo) (*chain.DefaultSyncer, chain.Store, *hamt.CborIpldStore, repo.Repo) {
+func initSyncTest(require *require.Assertions, con consensus.Protocol, genFunc func(cst *hamt.CborIpldStore, bs bstore.Blockstore) (*types.Block, error), cst *hamt.CborIpldStore, bs bstore.Blockstore, r repo.Repo) (*chain.DefaultSyncer, chain.Store, repo.Repo, *th.TestFetcher) {
 	ctx := context.Background()
 
 	calcGenBlk, err := genFunc(cst, bs) // flushes state
 	require.NoError(err)
-
 	calcGenBlk.StateRoot = genStateRoot
-
 	chainDS := r.ChainDatastore()
 	chainStore := chain.NewDefaultStore(chainDS, cst, calcGenBlk.Cid())
 
-	syncer := chain.NewDefaultSyncer(cst, cst, con, chainStore) // note we use same cst for on and offline for tests
+	fetcher := th.NewTestFetcher()
+	syncer := chain.NewDefaultSyncer(cst, con, chainStore, fetcher) // note we use same cst for on and offline for tests
 
 	// Initialize stores to contain genesis block and state
-	calcGenTS := testhelpers.RequireNewTipSet(require, calcGenBlk)
+	calcGenTS := th.RequireNewTipSet(require, calcGenBlk)
 
 	genTsas := &chain.TipSetAndState{
 		TipSet:          calcGenTS,
 		TipSetStateRoot: genStateRoot,
 	}
-	chain.RequirePutTsas(ctx, require, chainStore, genTsas)
+	th.RequirePutTsas(ctx, require, chainStore, genTsas)
 	err = chainStore.SetHead(ctx, calcGenTS) // Initialize chainStore store with correct genesis
 	require.NoError(err)
 	requireHead(require, chainStore, calcGenTS)
 	requireTsAdded(require, chainStore, calcGenTS)
 
-	return syncer, chainStore, cst, r
+	return syncer, chainStore, r, fetcher
 }
 
 func containsTipSet(tsasSlice []*chain.TipSetAndState, ts types.TipSet) bool {
@@ -276,13 +305,13 @@ func assertTsAdded(assert *assert.Assertions, chainStore chain.Store, ts types.T
 	}
 }
 
-func assertNoAdd(assert *assert.Assertions, chainStore chain.Store, cids []cid.Cid) {
+func assertNoAdd(assert *assert.Assertions, chainStore chain.Store, cids types.SortedCidSet) {
 	ctx := context.Background()
 	// Tip Index correctly updated
-	_, err := chainStore.GetTipSetAndState(ctx, types.NewSortedCidSet(cids...).String())
+	_, err := chainStore.GetTipSetAndState(ctx, cids.String())
 	assert.Error(err)
 	// Blocks exist in store
-	for _, c := range cids {
+	for _, c := range cids.ToSlice() {
 		assert.False(chainStore.HasBlock(ctx, c))
 	}
 }
@@ -297,15 +326,14 @@ func assertHead(assert *assert.Assertions, chain chain.Store, head types.TipSet)
 	assert.Equal(head, gotHead)
 }
 
-func requirePutBlocks(require *require.Assertions, cst *hamt.CborIpldStore, blks ...*types.Block) []cid.Cid {
-	ctx := context.Background()
+func requirePutBlocks(require *require.Assertions, f *th.TestFetcher, blocks ...*types.Block) types.SortedCidSet {
 	var cids []cid.Cid
-	for _, blk := range blks {
-		c, err := cst.Put(ctx, blk)
-		require.NoError(err)
+	for _, block := range blocks {
+		c := block.Cid()
 		cids = append(cids, c)
 	}
-	return cids
+	f.AddSourceBlocks(blocks...)
+	return types.NewSortedCidSet(cids...)
 }
 
 /* Regular Degular syncing */
@@ -314,12 +342,12 @@ func requirePutBlocks(require *require.Assertions, cst *hamt.CborIpldStore, blks
 func TestSyncOneBlock(t *testing.T) {
 	assert := assert.New(t)
 	require := require.New(t)
-	syncer, chainStore, cst, _ := initSyncTestDefault(require)
+	syncer, chainStore, _, blockSource := initSyncTestDefault(require)
 	ctx := context.Background()
-	expectedTs := testhelpers.RequireNewTipSet(require, link1blk1)
+	expectedTs := th.RequireNewTipSet(require, link1blk1)
 
-	cids := requirePutBlocks(require, cst, link1blk1)
-	err := syncer.HandleNewBlocks(ctx, cids)
+	cids := requirePutBlocks(require, blockSource, link1blk1)
+	err := syncer.HandleNewTipset(ctx, cids)
 	assert.NoError(err)
 
 	assertTsAdded(assert, chainStore, expectedTs)
@@ -330,11 +358,11 @@ func TestSyncOneBlock(t *testing.T) {
 func TestSyncOneTipSet(t *testing.T) {
 	assert := assert.New(t)
 	require := require.New(t)
-	syncer, chainStore, cst, _ := initSyncTestDefault(require)
+	syncer, chainStore, _, blockSource := initSyncTestDefault(require)
 	ctx := context.Background()
 
-	cids := requirePutBlocks(require, cst, link1blk1, link1blk2)
-	err := syncer.HandleNewBlocks(ctx, cids)
+	cids := requirePutBlocks(require, blockSource, link1blk1, link1blk2)
+	err := syncer.HandleNewTipset(ctx, cids)
 	assert.NoError(err)
 
 	assertTsAdded(assert, chainStore, link1)
@@ -343,21 +371,21 @@ func TestSyncOneTipSet(t *testing.T) {
 
 // Syncer syncs one tipset, block by block.
 func TestSyncTipSetBlockByBlock(t *testing.T) {
-	pt := testhelpers.NewTestPowerTableView(1, 1)
+	pt := th.NewTestPowerTableView(1, 1)
 	assert := assert.New(t)
 	require := require.New(t)
-	syncer, chainStore, cst, _ := initSyncTestWithPowerTable(require, pt)
+	syncer, chainStore, _, blockSource := initSyncTestWithPowerTable(require, pt)
 	ctx := context.Background()
-	expTs1 := testhelpers.RequireNewTipSet(require, link1blk1)
+	expTs1 := th.RequireNewTipSet(require, link1blk1)
 
-	cids := requirePutBlocks(require, cst, link1blk1, link1blk2)
-	err := syncer.HandleNewBlocks(ctx, []cid.Cid{cids[0]})
+	_ = requirePutBlocks(require, blockSource, link1blk1, link1blk2)
+	err := syncer.HandleNewTipset(ctx, types.NewSortedCidSet(link1blk1.Cid()))
 	assert.NoError(err)
 
 	assertTsAdded(assert, chainStore, expTs1)
 	assertHead(assert, chainStore, expTs1)
 
-	err = syncer.HandleNewBlocks(ctx, []cid.Cid{cids[1]})
+	err = syncer.HandleNewTipset(ctx, types.NewSortedCidSet(link1blk2.Cid()))
 	assert.NoError(err)
 
 	assertTsAdded(assert, chainStore, link1)
@@ -368,30 +396,30 @@ func TestSyncTipSetBlockByBlock(t *testing.T) {
 func TestSyncChainTipSetByTipSet(t *testing.T) {
 	assert := assert.New(t)
 	require := require.New(t)
-	syncer, chainStore, cst, _ := initSyncTestDefault(require)
+	syncer, chainStore, _, blockSource := initSyncTestDefault(require)
 	ctx := context.Background()
 
-	cids1 := requirePutBlocks(require, cst, link1.ToSlice()...)
-	cids2 := requirePutBlocks(require, cst, link2.ToSlice()...)
-	cids3 := requirePutBlocks(require, cst, link3.ToSlice()...)
-	cids4 := requirePutBlocks(require, cst, link4.ToSlice()...)
+	cids1 := requirePutBlocks(require, blockSource, link1.ToSlice()...)
+	cids2 := requirePutBlocks(require, blockSource, link2.ToSlice()...)
+	cids3 := requirePutBlocks(require, blockSource, link3.ToSlice()...)
+	cids4 := requirePutBlocks(require, blockSource, link4.ToSlice()...)
 
-	err := syncer.HandleNewBlocks(ctx, cids1)
+	err := syncer.HandleNewTipset(ctx, cids1)
 	assert.NoError(err)
 	assertTsAdded(assert, chainStore, link1)
 	assertHead(assert, chainStore, link1)
 
-	err = syncer.HandleNewBlocks(ctx, cids2)
+	err = syncer.HandleNewTipset(ctx, cids2)
 	assert.NoError(err)
 	assertTsAdded(assert, chainStore, link2)
 	assertHead(assert, chainStore, link2)
 
-	err = syncer.HandleNewBlocks(ctx, cids3)
+	err = syncer.HandleNewTipset(ctx, cids3)
 	assert.NoError(err)
 	assertTsAdded(assert, chainStore, link3)
 	assertHead(assert, chainStore, link3)
 
-	err = syncer.HandleNewBlocks(ctx, cids4)
+	err = syncer.HandleNewTipset(ctx, cids4)
 	assert.NoError(err)
 	assertTsAdded(assert, chainStore, link4)
 	assertHead(assert, chainStore, link4)
@@ -401,15 +429,15 @@ func TestSyncChainTipSetByTipSet(t *testing.T) {
 func TestSyncChainHead(t *testing.T) {
 	assert := assert.New(t)
 	require := require.New(t)
-	syncer, chainStore, cst, _ := initSyncTestDefault(require)
+	syncer, chainStore, _, blockSource := initSyncTestDefault(require)
 	ctx := context.Background()
 
-	_ = requirePutBlocks(require, cst, link1.ToSlice()...)
-	_ = requirePutBlocks(require, cst, link2.ToSlice()...)
-	_ = requirePutBlocks(require, cst, link3.ToSlice()...)
-	cids4 := requirePutBlocks(require, cst, link4.ToSlice()...)
+	_ = requirePutBlocks(require, blockSource, link1.ToSlice()...)
+	_ = requirePutBlocks(require, blockSource, link2.ToSlice()...)
+	_ = requirePutBlocks(require, blockSource, link3.ToSlice()...)
+	cids4 := requirePutBlocks(require, blockSource, link4.ToSlice()...)
 
-	err := syncer.HandleNewBlocks(ctx, cids4)
+	err := syncer.HandleNewTipset(ctx, cids4)
 	assert.NoError(err)
 	assertTsAdded(assert, chainStore, link4)
 	assertTsAdded(assert, chainStore, link3)
@@ -422,29 +450,39 @@ func TestSyncChainHead(t *testing.T) {
 func TestSyncIgnoreLightFork(t *testing.T) {
 	assert := assert.New(t)
 	require := require.New(t)
-	syncer, chainStore, cst, _ := initSyncTestDefault(require)
+	syncer, chainStore, _, blockSource := initSyncTestDefault(require)
 	ctx := context.Background()
 
-	forkbase := testhelpers.RequireNewTipSet(require, link2blk1)
-	forkblk1 := chain.RequireMkFakeChild(require,
-		chain.FakeChildParams{Parent: forkbase, GenesisCid: genCid, StateRoot: genStateRoot, MinerAddr: minerAddress})
-	forklink1 := testhelpers.RequireNewTipSet(require, forkblk1)
+	forkbase := th.RequireNewTipSet(require, link2blk1)
+	signer, ki := types.NewMockSignersAndKeyInfo(1)
+	signerPubKey := ki[0].PublicKey()
 
-	_ = requirePutBlocks(require, cst, link1.ToSlice()...)
-	_ = requirePutBlocks(require, cst, link2.ToSlice()...)
-	_ = requirePutBlocks(require, cst, link3.ToSlice()...)
-	cids4 := requirePutBlocks(require, cst, link4.ToSlice()...)
+	forkblk1 := th.RequireMkFakeChild(require,
+		th.FakeChildParams{
+			MinerAddr:   minerAddress,
+			Signer:      signer,
+			MinerPubKey: signerPubKey,
+			Parent:      forkbase,
+			GenesisCid:  genCid,
+			StateRoot:   genStateRoot,
+		})
+	forklink1 := th.RequireNewTipSet(require, forkblk1)
 
-	forkCids1 := requirePutBlocks(require, cst, forklink1.ToSlice()...)
+	_ = requirePutBlocks(require, blockSource, link1.ToSlice()...)
+	_ = requirePutBlocks(require, blockSource, link2.ToSlice()...)
+	_ = requirePutBlocks(require, blockSource, link3.ToSlice()...)
+	cids4 := requirePutBlocks(require, blockSource, link4.ToSlice()...)
+
+	forkCids1 := requirePutBlocks(require, blockSource, forklink1.ToSlice()...)
 
 	// Sync heaviest branch first.
-	err := syncer.HandleNewBlocks(ctx, cids4)
+	err := syncer.HandleNewTipset(ctx, cids4)
 	assert.NoError(err)
 	assertTsAdded(assert, chainStore, link4)
 	assertHead(assert, chainStore, link4)
 
 	// lighter fork should be processed but not change head.
-	assert.NoError(syncer.HandleNewBlocks(ctx, forkCids1))
+	assert.NoError(syncer.HandleNewTipset(ctx, forkCids1))
 	assertTsAdded(assert, chainStore, forklink1)
 	assertHead(assert, chainStore, link4)
 }
@@ -453,48 +491,67 @@ func TestSyncIgnoreLightFork(t *testing.T) {
 func TestHeavierFork(t *testing.T) {
 	assert := assert.New(t)
 	require := require.New(t)
-	syncer, chainStore, cst, _ := initSyncTestDefault(require)
+	syncer, chainStore, _, blockSource := initSyncTestDefault(require)
 	ctx := context.Background()
 
-	forkbase := testhelpers.RequireNewTipSet(require, link2blk1)
-	forklink1blk1 := chain.RequireMkFakeChild(require,
-		chain.FakeChildParams{Parent: forkbase, GenesisCid: genCid, StateRoot: genStateRoot, MinerAddr: minerAddress})
-	forklink1blk2 := chain.RequireMkFakeChild(require,
-		chain.FakeChildParams{Parent: forkbase, GenesisCid: genCid, StateRoot: genStateRoot, Nonce: uint64(1), MinerAddr: minerAddress})
-	forklink1blk3 := chain.RequireMkFakeChild(require,
-		chain.FakeChildParams{Parent: forkbase, GenesisCid: genCid, StateRoot: genStateRoot, Nonce: uint64(2), MinerAddr: minerAddress})
+	signer, ki := types.NewMockSignersAndKeyInfo(2)
+	mockSignerPubKey := ki[0].PublicKey()
 
-	forklink1 := testhelpers.RequireNewTipSet(require, forklink1blk1, forklink1blk2, forklink1blk3)
+	forkbase := th.RequireNewTipSet(require, link2blk1)
+	fakeChildParams := th.FakeChildParams{
+		Parent:      forkbase,
+		GenesisCid:  genCid,
+		StateRoot:   genStateRoot,
+		MinerAddr:   minerAddress,
+		Signer:      signer,
+		MinerPubKey: mockSignerPubKey,
+		Nonce:       uint64(1),
+	}
 
-	forklink2blk1 := chain.RequireMkFakeChild(require,
-		chain.FakeChildParams{Parent: forklink1, GenesisCid: genCid, StateRoot: genStateRoot, MinerAddr: minerAddress})
-	forklink2blk2 := chain.RequireMkFakeChild(require,
-		chain.FakeChildParams{Parent: forklink1, GenesisCid: genCid, StateRoot: genStateRoot, Nonce: uint64(1), MinerAddr: minerAddress})
-	forklink2blk3 := chain.RequireMkFakeChild(require,
-		chain.FakeChildParams{Parent: forklink1, GenesisCid: genCid, StateRoot: genStateRoot, Nonce: uint64(2), MinerAddr: minerAddress})
-	forklink2 := testhelpers.RequireNewTipSet(require, forklink2blk1, forklink2blk2, forklink2blk3)
+	forklink1blk1 := th.RequireMkFakeChild(require, fakeChildParams)
 
-	forklink3blk1 := chain.RequireMkFakeChild(require,
-		chain.FakeChildParams{Parent: forklink2, GenesisCid: genCid, StateRoot: genStateRoot, MinerAddr: minerAddress})
-	forklink3blk2 := chain.RequireMkFakeChild(require,
-		chain.FakeChildParams{Parent: forklink2, GenesisCid: genCid, StateRoot: genStateRoot, Nonce: uint64(1), MinerAddr: minerAddress})
-	forklink3 := testhelpers.RequireNewTipSet(require, forklink3blk1, forklink3blk2)
+	fakeChildParams.Nonce = uint64(1)
+	forklink1blk2 := th.RequireMkFakeChild(require, fakeChildParams)
 
-	_ = requirePutBlocks(require, cst, link1.ToSlice()...)
-	_ = requirePutBlocks(require, cst, link2.ToSlice()...)
-	_ = requirePutBlocks(require, cst, link3.ToSlice()...)
-	cids4 := requirePutBlocks(require, cst, link4.ToSlice()...)
-	_ = requirePutBlocks(require, cst, forklink1.ToSlice()...)
-	_ = requirePutBlocks(require, cst, forklink2.ToSlice()...)
-	forkHead := requirePutBlocks(require, cst, forklink3.ToSlice()...)
+	fakeChildParams.Nonce = uint64(2)
+	forklink1blk3 := th.RequireMkFakeChild(require, fakeChildParams)
 
-	err := syncer.HandleNewBlocks(ctx, cids4)
+	forklink1 := th.RequireNewTipSet(require, forklink1blk1, forklink1blk2, forklink1blk3)
+
+	fakeChildParams.Parent = forklink1
+	fakeChildParams.Nonce = uint64(0)
+	forklink2blk1 := th.RequireMkFakeChild(require, fakeChildParams)
+
+	fakeChildParams.Nonce = uint64(1)
+	forklink2blk2 := th.RequireMkFakeChild(require, fakeChildParams)
+
+	fakeChildParams.Nonce = uint64(2)
+	forklink2blk3 := th.RequireMkFakeChild(require, fakeChildParams)
+	forklink2 := th.RequireNewTipSet(require, forklink2blk1, forklink2blk2, forklink2blk3)
+
+	fakeChildParams.Nonce = uint64(0)
+	fakeChildParams.Parent = forklink2
+	forklink3blk1 := th.RequireMkFakeChild(require, fakeChildParams)
+
+	fakeChildParams.Nonce = uint64(1)
+	forklink3blk2 := th.RequireMkFakeChild(require, fakeChildParams)
+	forklink3 := th.RequireNewTipSet(require, forklink3blk1, forklink3blk2)
+
+	_ = requirePutBlocks(require, blockSource, link1.ToSlice()...)
+	_ = requirePutBlocks(require, blockSource, link2.ToSlice()...)
+	_ = requirePutBlocks(require, blockSource, link3.ToSlice()...)
+	cids4 := requirePutBlocks(require, blockSource, link4.ToSlice()...)
+	_ = requirePutBlocks(require, blockSource, forklink1.ToSlice()...)
+	_ = requirePutBlocks(require, blockSource, forklink2.ToSlice()...)
+	forkHead := requirePutBlocks(require, blockSource, forklink3.ToSlice()...)
+
+	err := syncer.HandleNewTipset(ctx, cids4)
 	assert.NoError(err)
 	assertTsAdded(assert, chainStore, link4)
 	assertHead(assert, chainStore, link4)
 
 	// heavier fork updates head
-	err = syncer.HandleNewBlocks(ctx, forkHead)
+	err = syncer.HandleNewTipset(ctx, forkHead)
 	assert.NoError(err)
 	assertTsAdded(assert, chainStore, forklink1)
 	assertTsAdded(assert, chainStore, forklink2)
@@ -506,13 +563,13 @@ func TestHeavierFork(t *testing.T) {
 func TestBlocksNotATipSet(t *testing.T) {
 	assert := assert.New(t)
 	require := require.New(t)
-	syncer, chainStore, cst, _ := initSyncTestDefault(require)
+	syncer, chainStore, _, blockSource := initSyncTestDefault(require)
 	ctx := context.Background()
 
-	_ = requirePutBlocks(require, cst, link1.ToSlice()...)
-	_ = requirePutBlocks(require, cst, link2.ToSlice()...)
-	badCids := []cid.Cid{link1blk1.Cid(), link2blk1.Cid()}
-	err := syncer.HandleNewBlocks(ctx, badCids)
+	_ = requirePutBlocks(require, blockSource, link1.ToSlice()...)
+	_ = requirePutBlocks(require, blockSource, link2.ToSlice()...)
+	badCids := types.NewSortedCidSet(link1blk1.Cid(), link2blk1.Cid())
+	err := syncer.HandleNewTipset(ctx, badCids)
 	assert.Error(err)
 	assertNoAdd(assert, chainStore, badCids)
 }
@@ -523,52 +580,84 @@ func TestBlocksNotATipSet(t *testing.T) {
 func TestLoadFork(t *testing.T) {
 	assert := assert.New(t)
 	require := require.New(t)
-	syncer, chainStore, cst, r := initSyncTestDefault(require)
+	syncer, chainStore, r, blockSource := initSyncTestDefault(require)
 	ctx := context.Background()
 
 	// Set up chain store to have standard chain up to link2
-	_ = requirePutBlocks(require, cst, link1.ToSlice()...)
-	cids2 := requirePutBlocks(require, cst, link2.ToSlice()...)
-	err := syncer.HandleNewBlocks(ctx, cids2)
+	_ = requirePutBlocks(require, blockSource, link1.ToSlice()...)
+	cids2 := requirePutBlocks(require, blockSource, link2.ToSlice()...)
+	err := syncer.HandleNewTipset(ctx, cids2)
 	require.NoError(err)
 
 	// Now sync the store with a heavier fork, forking off link1.
-	forkbase := testhelpers.RequireNewTipSet(require, link2blk1)
-	forklink1blk1 := chain.RequireMkFakeChild(require,
-		chain.FakeChildParams{Parent: forkbase, GenesisCid: genCid, StateRoot: genStateRoot, MinerAddr: minerAddress})
-	forklink1blk2 := chain.RequireMkFakeChild(require,
-		chain.FakeChildParams{Parent: forkbase, GenesisCid: genCid, StateRoot: genStateRoot, Nonce: uint64(1), MinerAddr: minerAddress})
-	forklink1blk3 := chain.RequireMkFakeChild(require,
-		chain.FakeChildParams{Parent: forkbase, GenesisCid: genCid, StateRoot: genStateRoot, Nonce: uint64(2), MinerAddr: minerAddress})
-	forklink1 := testhelpers.RequireNewTipSet(require, forklink1blk1, forklink1blk2, forklink1blk3)
+	forkbase := th.RequireNewTipSet(require, link2blk1)
 
-	forklink2blk1 := chain.RequireMkFakeChild(require,
-		chain.FakeChildParams{Parent: forklink1, GenesisCid: genCid, StateRoot: genStateRoot, MinerAddr: minerAddress})
-	forklink2blk2 := chain.RequireMkFakeChild(require,
-		chain.FakeChildParams{Parent: forklink1, GenesisCid: genCid, StateRoot: genStateRoot, Nonce: uint64(1), MinerAddr: minerAddress})
-	forklink2blk3 := chain.RequireMkFakeChild(require,
-		chain.FakeChildParams{Parent: forklink1, GenesisCid: genCid, StateRoot: genStateRoot, Nonce: uint64(2), MinerAddr: minerAddress})
-	forklink2 := testhelpers.RequireNewTipSet(require, forklink2blk1, forklink2blk2, forklink2blk3)
+	signer, ki := types.NewMockSignersAndKeyInfo(2)
+	mockSignerPubKey := ki[0].PublicKey()
 
-	forklink3blk1 := chain.RequireMkFakeChild(require,
-		chain.FakeChildParams{Parent: forklink2, GenesisCid: genCid, StateRoot: genStateRoot, MinerAddr: minerAddress})
-	forklink3blk2 := chain.RequireMkFakeChild(require,
-		chain.FakeChildParams{Parent: forklink2, GenesisCid: genCid, StateRoot: genStateRoot, Nonce: uint64(1), MinerAddr: minerAddress})
-	forklink3 := testhelpers.RequireNewTipSet(require, forklink3blk1, forklink3blk2)
+	fakeChildParams := th.FakeChildParams{
+		Parent:      forkbase,
+		GenesisCid:  genCid,
+		MinerAddr:   minerAddress,
+		Nonce:       uint64(1),
+		StateRoot:   genStateRoot,
+		Signer:      signer,
+		MinerPubKey: mockSignerPubKey,
+	}
 
-	_ = requirePutBlocks(require, cst, forklink1.ToSlice()...)
-	_ = requirePutBlocks(require, cst, forklink2.ToSlice()...)
-	forkHead := requirePutBlocks(require, cst, forklink3.ToSlice()...)
-	err = syncer.HandleNewBlocks(ctx, forkHead)
+	forklink1blk1 := th.RequireMkFakeChild(require, fakeChildParams)
+
+	fakeChildParams.Nonce = uint64(1)
+	forklink1blk2 := th.RequireMkFakeChild(require, fakeChildParams)
+
+	fakeChildParams.Nonce = uint64(2)
+	forklink1blk3 := th.RequireMkFakeChild(require, fakeChildParams)
+	//th.FakeChildParams{Parent: forkbase, GenesisCid: genCid, StateRoot: genStateRoot, Nonce: uint64(2)})
+	forklink1 := th.RequireNewTipSet(require, forklink1blk1, forklink1blk2, forklink1blk3)
+
+	fakeChildParams.Parent = forklink1
+	fakeChildParams.Nonce = uint64(0)
+	forklink2blk1 := th.RequireMkFakeChild(require, fakeChildParams)
+
+	fakeChildParams.Nonce = uint64(1)
+	forklink2blk2 := th.RequireMkFakeChild(require, fakeChildParams)
+
+	fakeChildParams.Nonce = uint64(2)
+	forklink2blk3 := th.RequireMkFakeChild(require, fakeChildParams)
+	forklink2 := th.RequireNewTipSet(require, forklink2blk1, forklink2blk2, forklink2blk3)
+
+	fakeChildParams.Nonce = uint64(0)
+	fakeChildParams.Parent = forklink2
+	forklink3blk1 := th.RequireMkFakeChild(require, fakeChildParams)
+
+	fakeChildParams.Nonce = uint64(1)
+	forklink3blk2 := th.RequireMkFakeChild(require, fakeChildParams)
+	forklink3 := th.RequireNewTipSet(require, forklink3blk1, forklink3blk2)
+
+	_ = requirePutBlocks(require, blockSource, forklink1.ToSlice()...)
+	_ = requirePutBlocks(require, blockSource, forklink2.ToSlice()...)
+	forkHead := requirePutBlocks(require, blockSource, forklink3.ToSlice()...)
+	err = syncer.HandleNewTipset(ctx, forkHead)
 	require.NoError(err)
 	requireHead(require, chainStore, forklink3)
 
 	// Shut down store, reload and wire to syncer.
-	loadSyncer, loadCst := loadSyncerFromRepo(require, r)
+	loadSyncer, blockSource := loadSyncerFromRepo(require, r)
 
-	// Test that the syncer can sync a block on the old chain
-	cids3 := requirePutBlocks(require, loadCst, link3.ToSlice()...)
-	err = loadSyncer.HandleNewBlocks(ctx, cids3)
+	// Test that the syncer can't sync a block on the old chain
+	// without getting old blocks from network. i.e. the repo is trimmed
+	// of non-heaviest chain blocks
+	cids3 := requirePutBlocks(require, blockSource, link3.ToSlice()...)
+	err = loadSyncer.HandleNewTipset(ctx, cids3)
+	assert.Error(err)
+
+	// Test that the syncer can sync a block on the heaviest chain
+	// without getting old blocks from the network.
+	fakeChildParams.Parent = forklink3
+	forklink4blk1 := th.RequireMkFakeChild(require, fakeChildParams)
+	forklink4 := th.RequireNewTipSet(require, forklink4blk1)
+	cidsFork4 := requirePutBlocks(require, blockSource, forklink4.ToSlice()...)
+	err = loadSyncer.HandleNewTipset(ctx, cidsFork4)
 	assert.NoError(err)
 }
 
@@ -589,34 +678,51 @@ func TestLoadFork(t *testing.T) {
 func TestSubsetParent(t *testing.T) {
 	assert := assert.New(t)
 	require := require.New(t)
-	syncer, _, cst, _ := initSyncTestDefault(require)
+	syncer, _, _, blockSource := initSyncTestDefault(require)
 	ctx := context.Background()
 
 	// Set up store to have standard chain up to link2
-	_ = requirePutBlocks(require, cst, link1.ToSlice()...)
-	cids2 := requirePutBlocks(require, cst, link2.ToSlice()...)
-	err := syncer.HandleNewBlocks(ctx, cids2)
+	_ = requirePutBlocks(require, blockSource, link1.ToSlice()...)
+	cids2 := requirePutBlocks(require, blockSource, link2.ToSlice()...)
+	err := syncer.HandleNewTipset(ctx, cids2)
 	require.NoError(err)
 
 	// Sync one tipset with a parent equal to a subset of an existing
 	// tipset in the store.
-	forkbase := testhelpers.RequireNewTipSet(require, link2blk1, link2blk2)
-	forkblk1 := chain.RequireMkFakeChild(require,
-		chain.FakeChildParams{Parent: forkbase, GenesisCid: genCid, StateRoot: genStateRoot, MinerAddr: minerAddress})
-	forkblk2 := chain.RequireMkFakeChild(require,
-		chain.FakeChildParams{Parent: forkbase, GenesisCid: genCid, StateRoot: genStateRoot, Nonce: uint64(1), MinerAddr: minerAddress})
-	forklink := testhelpers.RequireNewTipSet(require, forkblk1, forkblk2)
-	forkHead := requirePutBlocks(require, cst, forklink.ToSlice()...)
-	err = syncer.HandleNewBlocks(ctx, forkHead)
+	forkbase := th.RequireNewTipSet(require, link2blk1, link2blk2)
+
+	signer, ki := types.NewMockSignersAndKeyInfo(2)
+	mockSignerPubKey := ki[0].PublicKey()
+
+	fakeChildParams := th.FakeChildParams{
+		Parent:      forkbase,
+		GenesisCid:  genCid,
+		MinerAddr:   minerAddress,
+		StateRoot:   genStateRoot,
+		Signer:      signer,
+		MinerPubKey: mockSignerPubKey,
+	}
+
+	forkblk1 := th.RequireMkFakeChild(require, fakeChildParams)
+
+	fakeChildParams.Nonce = uint64(1)
+	forkblk2 := th.RequireMkFakeChild(require, fakeChildParams)
+
+	forklink := th.RequireNewTipSet(require, forkblk1, forkblk2)
+	forkHead := requirePutBlocks(require, blockSource, forklink.ToSlice()...)
+	err = syncer.HandleNewTipset(ctx, forkHead)
 	assert.NoError(err)
 
 	// Sync another tipset with a parent equal to a subset of the tipset
 	// just synced.
-	newForkbase := testhelpers.RequireNewTipSet(require, forkblk1, forkblk2)
-	newForkblk := chain.RequireMkFakeChild(require, chain.FakeChildParams{Parent: newForkbase, GenesisCid: genCid, StateRoot: genStateRoot, MinerAddr: minerAddress})
-	newForklink := testhelpers.RequireNewTipSet(require, newForkblk)
-	newForkHead := requirePutBlocks(require, cst, newForklink.ToSlice()...)
-	err = syncer.HandleNewBlocks(ctx, newForkHead)
+	newForkbase := th.RequireNewTipSet(require, forkblk1, forkblk2)
+
+	fakeChildParams.Parent = newForkbase
+	fakeChildParams.Nonce = uint64(0)
+	newForkblk := th.RequireMkFakeChild(require, fakeChildParams)
+	newForklink := th.RequireNewTipSet(require, newForkblk)
+	newForkHead := requirePutBlocks(require, blockSource, newForklink.ToSlice()...)
+	err = syncer.HandleNewTipset(ctx, newForkHead)
 	assert.NoError(err)
 }
 
@@ -624,35 +730,47 @@ func TestSubsetParent(t *testing.T) {
 func TestWidenChainAncestor(t *testing.T) {
 	assert := assert.New(t)
 	require := require.New(t)
-	syncer, chainStore, cst, _ := initSyncTestDefault(require)
+	syncer, chainStore, _, blockSource := initSyncTestDefault(require)
 	ctx := context.Background()
 
-	link2blkother := chain.RequireMkFakeChild(require,
-		chain.FakeChildParams{Parent: link1, GenesisCid: genCid, StateRoot: genStateRoot, Nonce: uint64(27), MinerAddr: minerAddress})
+	signer, ki := types.NewMockSignersAndKeyInfo(2)
+	mockSignerPubKey := ki[0].PublicKey()
 
-	link2intersect := testhelpers.RequireNewTipSet(require, link2blk1, link2blkother)
+	fakeChildParams := th.FakeChildParams{
+		MinerAddr:   minerAddress,
+		Parent:      link1,
+		GenesisCid:  genCid,
+		StateRoot:   genStateRoot,
+		Signer:      signer,
+		MinerPubKey: mockSignerPubKey,
+		Nonce:       uint64(27),
+	}
 
-	_ = requirePutBlocks(require, cst, link1.ToSlice()...)
-	_ = requirePutBlocks(require, cst, link2.ToSlice()...)
-	_ = requirePutBlocks(require, cst, link3.ToSlice()...)
-	cids4 := requirePutBlocks(require, cst, link4.ToSlice()...)
+	link2blkother := th.RequireMkFakeChild(require, fakeChildParams)
 
-	intersectCids := requirePutBlocks(require, cst, link2intersect.ToSlice()...)
+	link2intersect := th.RequireNewTipSet(require, link2blk1, link2blkother)
+
+	_ = requirePutBlocks(require, blockSource, link1.ToSlice()...)
+	_ = requirePutBlocks(require, blockSource, link2.ToSlice()...)
+	_ = requirePutBlocks(require, blockSource, link3.ToSlice()...)
+	cids4 := requirePutBlocks(require, blockSource, link4.ToSlice()...)
+
+	intersectCids := requirePutBlocks(require, blockSource, link2intersect.ToSlice()...)
 
 	// Sync the subset of link2 first
-	err := syncer.HandleNewBlocks(ctx, intersectCids)
+	err := syncer.HandleNewTipset(ctx, intersectCids)
 	assert.NoError(err)
 	assertTsAdded(assert, chainStore, link2intersect)
 	assertHead(assert, chainStore, link2intersect)
 
 	// Sync chain with head at link4
-	err = syncer.HandleNewBlocks(ctx, cids4)
+	err = syncer.HandleNewTipset(ctx, cids4)
 	assert.NoError(err)
 	assertTsAdded(assert, chainStore, link4)
 	assertHead(assert, chainStore, link4)
 
 	// Check that the widened tipset (link2intersect U link2) is tracked
-	link2Union := testhelpers.RequireNewTipSet(require, link2blk1, link2blk2, link2blk3, link2blkother)
+	link2Union := th.RequireNewTipSet(require, link2blk1, link2blk2, link2blk3, link2blkother)
 	assertTsAdded(assert, chainStore, link2Union)
 }
 
@@ -696,61 +814,72 @@ func TestHeaviestIsWidenedAncestor(t *testing.T) {
 	pt := &powerTableForWidenTest{}
 	assert := assert.New(t)
 	require := require.New(t)
-	syncer, chainStore, cst, con := initSyncTestWithPowerTable(require, pt)
+	syncer, chainStore, con, blockSource := initSyncTestWithPowerTable(require, pt)
 	ctx := context.Background()
 
 	minerPower := uint64(25)
 	totalPower := uint64(100)
+	signer, ki := types.NewMockSignersAndKeyInfo(2)
+	mockSignerPubKey := ki[0].PublicKey()
+
+	fakeChildParams := th.FakeChildParams{
+		Parent:     link1,
+		Consensus:  con,
+		GenesisCid: genCid,
+		StateRoot:  genStateRoot,
+		MinerAddr:  minerAddress,
+		Signer:     signer,
+		Nonce:      uint64(1),
+	}
 
 	var err error
-	forklink2blk1 := chain.RequireMkFakeChildWithCon(require,
-		chain.FakeChildParams{Parent: link1, GenesisCid: genCid, StateRoot: genStateRoot, Consensus: con, Nonce: uint64(51), MinerAddr: minerAddress})
-
-	forklink2blk1.Proof, forklink2blk1.Ticket, err = chain.MakeProofAndWinningTicket(minerAddress, minerPower, totalPower)
+	forklink2blk1 := th.RequireMkFakeChildWithCon(require, fakeChildParams)
+	forklink2blk1.Proof, forklink2blk1.Ticket, err = th.MakeProofAndWinningTicket(mockSignerPubKey, minerPower, totalPower, signer)
 	require.NoError(err)
 
-	forklink2blk2 := chain.RequireMkFakeChildWithCon(require,
-		chain.FakeChildParams{Parent: link1, GenesisCid: genCid, StateRoot: genStateRoot, Consensus: con, Nonce: uint64(52), MinerAddr: minerAddress})
-	forklink2blk2.Proof, forklink2blk2.Ticket, err = chain.MakeProofAndWinningTicket(minerAddress, minerPower, totalPower)
+	fakeChildParams.Nonce = uint64(52)
+	forklink2blk2 := th.RequireMkFakeChildWithCon(require, fakeChildParams)
+	forklink2blk2.Proof, forklink2blk2.Ticket, err = th.MakeProofAndWinningTicket(mockSignerPubKey, minerPower, totalPower, signer)
 	require.NoError(err)
 
-	forklink2blk3 := chain.RequireMkFakeChildWithCon(require,
-		chain.FakeChildParams{Parent: link1, GenesisCid: genCid, StateRoot: genStateRoot, Consensus: con, Nonce: uint64(53), MinerAddr: minerAddress})
-	forklink2blk3.Proof, forklink2blk3.Ticket, err = chain.MakeProofAndWinningTicket(minerAddress, minerPower, totalPower)
+	fakeChildParams.Nonce = uint64(53)
+	forklink2blk3 := th.RequireMkFakeChildWithCon(require, fakeChildParams)
+	forklink2blk3.Proof, forklink2blk3.Ticket, err = th.MakeProofAndWinningTicket(mockSignerPubKey, minerPower, totalPower, signer)
 	require.NoError(err)
 
-	forklink2blk4 := chain.RequireMkFakeChildWithCon(require,
-		chain.FakeChildParams{Parent: link1, GenesisCid: genCid, StateRoot: genStateRoot, Consensus: con, Nonce: uint64(54), MinerAddr: minerAddress})
-	forklink2blk4.Proof, forklink2blk4.Ticket, err = chain.MakeProofAndWinningTicket(minerAddress, minerPower, totalPower)
+	fakeChildParams.Nonce = uint64(54)
+	forklink2blk4 := th.RequireMkFakeChildWithCon(require, fakeChildParams)
+	forklink2blk4.Proof, forklink2blk4.Ticket, err = th.MakeProofAndWinningTicket(mockSignerPubKey, minerPower, totalPower, signer)
 	require.NoError(err)
 
-	forklink2 := testhelpers.RequireNewTipSet(require, forklink2blk1, forklink2blk2, forklink2blk3, forklink2blk4)
+	forklink2 := th.RequireNewTipSet(require, forklink2blk1, forklink2blk2, forklink2blk3, forklink2blk4)
 
-	forklink3blk1 := chain.RequireMkFakeChildWithCon(require,
-		chain.FakeChildParams{Parent: forklink2, GenesisCid: genCid, StateRoot: genStateRoot, Consensus: con, MinerAddr: minerAddress})
-	forklink3blk1.Proof, forklink3blk1.Ticket, err = chain.MakeProofAndWinningTicket(minerAddress, minerPower, totalPower)
+	fakeChildParams.Nonce = uint64(0)
+	fakeChildParams.Parent = forklink2
+	forklink3blk1 := th.RequireMkFakeChildWithCon(require, fakeChildParams)
+	forklink3blk1.Proof, forklink3blk1.Ticket, err = th.MakeProofAndWinningTicket(mockSignerPubKey, minerPower, totalPower, signer)
 	require.NoError(err)
 
-	forklink3 := testhelpers.RequireNewTipSet(require, forklink3blk1)
+	forklink3 := th.RequireNewTipSet(require, forklink3blk1)
 
-	_ = requirePutBlocks(require, cst, link1.ToSlice()...)
-	_ = requirePutBlocks(require, cst, link2.ToSlice()...)
-	_ = requirePutBlocks(require, cst, link3.ToSlice()...)
-	testhead := requirePutBlocks(require, cst, link4.ToSlice()...)
+	_ = requirePutBlocks(require, blockSource, link1.ToSlice()...)
+	_ = requirePutBlocks(require, blockSource, link2.ToSlice()...)
+	_ = requirePutBlocks(require, blockSource, link3.ToSlice()...)
+	testhead := requirePutBlocks(require, blockSource, link4.ToSlice()...)
 
-	_ = requirePutBlocks(require, cst, forklink2.ToSlice()...)
-	forkhead := requirePutBlocks(require, cst, forklink3.ToSlice()...)
+	_ = requirePutBlocks(require, blockSource, forklink2.ToSlice()...)
+	forkhead := requirePutBlocks(require, blockSource, forklink3.ToSlice()...)
 
 	// Put testhead
-	err = syncer.HandleNewBlocks(ctx, testhead)
+	err = syncer.HandleNewTipset(ctx, testhead)
 	assert.NoError(err)
 
 	// Put forkhead
-	err = syncer.HandleNewBlocks(ctx, forkhead)
+	err = syncer.HandleNewTipset(ctx, forkhead)
 	assert.NoError(err)
 
 	// Assert that widened chain is the new head
-	wideTs := testhelpers.RequireNewTipSet(require, link2blk1, link2blk2, link2blk3, forklink2blk1, forklink2blk2, forklink2blk3, forklink2blk4)
+	wideTs := th.RequireNewTipSet(require, link2blk1, link2blk2, link2blk3, forklink2blk1, forklink2blk2, forklink2blk3, forklink2blk4)
 	assertTsAdded(assert, chainStore, wideTs)
 	assertHead(assert, chainStore, wideTs)
 }
@@ -769,6 +898,10 @@ func TestTipSetWeightDeep(t *testing.T) {
 	cst := hamt.NewCborStore()
 
 	ctx := context.Background()
+
+	mockSigner, ki := types.NewMockSignersAndKeyInfo(3)
+	signerPubKey1 := ki[0].PublicKey()
+	signerPubKey2 := ki[1].PublicKey()
 
 	// set up genesis block with power
 	genCfg := &gengen.GenesisCfg{
@@ -798,24 +931,27 @@ func TestTipSetWeightDeep(t *testing.T) {
 	chainStore := chain.NewDefaultStore(r.ChainDatastore(), cst, calcGenBlk.Cid())
 
 	verifier := proofs.NewFakeVerifier(true, nil)
-	con := consensus.NewExpected(cst, bs, testhelpers.NewTestProcessor(), &testhelpers.TestView{}, calcGenBlk.Cid(), verifier)
+	con := consensus.NewExpected(cst, bs, th.NewTestProcessor(), &th.TestView{}, calcGenBlk.Cid(), verifier)
 
 	// Initialize stores to contain genesis block and state
-	calcGenTS := testhelpers.RequireNewTipSet(require, &calcGenBlk)
+	calcGenTS := th.RequireNewTipSet(require, &calcGenBlk)
 	genTsas := &chain.TipSetAndState{
 		TipSet:          calcGenTS,
 		TipSetStateRoot: calcGenBlk.StateRoot,
 	}
-	chain.RequirePutTsas(ctx, require, chainStore, genTsas)
+	th.RequirePutTsas(ctx, require, chainStore, genTsas)
 	err = chainStore.SetHead(ctx, calcGenTS) // Initialize chainStore with correct genesis
 	require.NoError(err)
 	requireHead(require, chainStore, calcGenTS)
 	requireTsAdded(require, chainStore, calcGenTS)
 
+	// Setup a fetcher for feeding blocks into the syncer.
+	blockSource := th.NewTestFetcher()
+
 	// Now sync the chainStore with consensus using a MarketView.
 	verifier = proofs.NewFakeVerifier(true, nil)
-	con = consensus.NewExpected(cst, bs, testhelpers.NewTestProcessor(), &consensus.MarketView{}, calcGenBlk.Cid(), verifier)
-	syncer := chain.NewDefaultSyncer(cst, cst, con, chainStore)
+	con = consensus.NewExpected(cst, bs, th.NewTestProcessor(), &consensus.MarketView{}, calcGenBlk.Cid(), verifier)
+	syncer := chain.NewDefaultSyncer(cst, con, chainStore, blockSource)
 	baseTS := chainStore.Head() // this is the last block of the bootstrapping chain creating miners
 	require.Equal(1, len(baseTS))
 	bootstrapStateRoot := baseTS.ToSlice()[0].StateRoot
@@ -843,23 +979,31 @@ func TestTipSetWeightDeep(t *testing.T) {
 		// test blocks.
 		return con.Weight(ctx, ts, pSt)
 	}
-	f1b1 := chain.RequireMkFakeChildCore(require,
-		chain.FakeChildParams{Parent: baseTS, GenesisCid: calcGenBlk.Cid(), StateRoot: bootstrapStateRoot, MinerAddr: info.Miners[1].Address},
-		wFun)
-	f1b1.Proof, f1b1.Ticket, err = chain.MakeProofAndWinningTicket(info.Miners[1].Address, info.Miners[1].Power, 1000)
+
+	fakeChildParams := th.FakeChildParams{
+		Parent:     baseTS,
+		GenesisCid: calcGenBlk.Cid(),
+		StateRoot:  bootstrapStateRoot,
+		Signer:     mockSigner,
+
+		MinerAddr: info.Miners[1].Address,
+	}
+
+	f1b1 := th.RequireMkFakeChildCore(require, fakeChildParams, wFun)
+	f1b1.Proof, f1b1.Ticket, err = th.MakeProofAndWinningTicket(signerPubKey1, info.Miners[1].Power, 1000, mockSigner)
 	require.NoError(err)
 
-	f2b1 := chain.RequireMkFakeChildCore(require,
-		chain.FakeChildParams{Parent: baseTS, GenesisCid: calcGenBlk.Cid(), StateRoot: bootstrapStateRoot, Nonce: uint64(1), MinerAddr: info.Miners[2].Address},
-		wFun)
-	f2b1.Proof, f2b1.Ticket, err = chain.MakeProofAndWinningTicket(info.Miners[2].Address, info.Miners[2].Power, 1000)
+	fakeChildParams.Nonce = uint64(1)
+	fakeChildParams.MinerAddr = info.Miners[2].Address
+	f2b1 := th.RequireMkFakeChildCore(require, fakeChildParams, wFun)
+	f2b1.Proof, f2b1.Ticket, err = th.MakeProofAndWinningTicket(signerPubKey1, info.Miners[2].Power, 1000, mockSigner)
 	require.NoError(err)
 
-	tsShared := testhelpers.RequireNewTipSet(require, f1b1, f2b1)
+	tsShared := th.RequireNewTipSet(require, f1b1, f2b1)
 
 	// Sync first tipset, should have weight 22 + starting
-	sharedCids := requirePutBlocks(require, cst, f1b1, f2b1)
-	err = syncer.HandleNewBlocks(ctx, sharedCids)
+	sharedCids := requirePutBlocks(require, blockSource, f1b1, f2b1)
+	err = syncer.HandleNewTipset(ctx, sharedCids)
 	require.NoError(err)
 	assertHead(assert, chainStore, tsShared)
 	measuredWeight, err := wFun(chainStore.Head())
@@ -868,21 +1012,28 @@ func TestTipSetWeightDeep(t *testing.T) {
 	assert.Equal(expectedWeight, measuredWeight)
 
 	// fork 1 is heavier than the old head.
-	f1b2a := chain.RequireMkFakeChildCore(require,
-		chain.FakeChildParams{Parent: testhelpers.RequireNewTipSet(require, f1b1), GenesisCid: calcGenBlk.Cid(), StateRoot: bootstrapStateRoot, MinerAddr: info.Miners[1].Address},
-		wFun)
-	f1b2a.Proof, f1b2a.Ticket, err = chain.MakeProofAndWinningTicket(info.Miners[1].Address, info.Miners[1].Power, 1000)
+	fakeChildParams = th.FakeChildParams{
+		Parent:     th.RequireNewTipSet(require, f1b1),
+		GenesisCid: calcGenBlk.Cid(),
+		StateRoot:  bootstrapStateRoot,
+		Signer:     mockSigner,
+
+		MinerAddr: info.Miners[1].Address,
+	}
+	f1b2a := th.RequireMkFakeChildCore(require, fakeChildParams, wFun)
+	f1b2a.Proof, f1b2a.Ticket, err = th.MakeProofAndWinningTicket(signerPubKey1, info.Miners[1].Power, 1000, mockSigner)
 	require.NoError(err)
 
-	f1b2b := chain.RequireMkFakeChildCore(require,
-		chain.FakeChildParams{Parent: testhelpers.RequireNewTipSet(require, f1b1), GenesisCid: calcGenBlk.Cid(), StateRoot: bootstrapStateRoot, Nonce: uint64(1), MinerAddr: info.Miners[2].Address},
-		wFun)
-	f1b2b.Proof, f1b2b.Ticket, err = chain.MakeProofAndWinningTicket(info.Miners[2].Address, info.Miners[2].Power, 1000)
+	fakeChildParams.Nonce = uint64(1)
+
+	fakeChildParams.MinerAddr = info.Miners[2].Address
+	f1b2b := th.RequireMkFakeChildCore(require, fakeChildParams, wFun)
+	f1b2b.Proof, f1b2b.Ticket, err = th.MakeProofAndWinningTicket(signerPubKey2, info.Miners[2].Power, 1000, mockSigner)
 	require.NoError(err)
 
-	f1 := testhelpers.RequireNewTipSet(require, f1b2a, f1b2b)
-	f1Cids := requirePutBlocks(require, cst, f1.ToSlice()...)
-	err = syncer.HandleNewBlocks(ctx, f1Cids)
+	f1 := th.RequireNewTipSet(require, f1b2a, f1b2b)
+	f1Cids := requirePutBlocks(require, blockSource, f1.ToSlice()...)
+	err = syncer.HandleNewTipset(ctx, f1Cids)
 	require.NoError(err)
 	assertHead(assert, chainStore, f1)
 	measuredWeight, err = wFun(chainStore.Head())
@@ -892,17 +1043,21 @@ func TestTipSetWeightDeep(t *testing.T) {
 
 	// fork 2 has heavier weight because of addr3's power even though there
 	// are fewer blocks in the tipset than fork 1.
-	f2b2 := chain.RequireMkFakeChildCore(require,
-		chain.FakeChildParams{Parent: testhelpers.RequireNewTipSet(require, f2b1), GenesisCid: calcGenBlk.Cid(), StateRoot: bootstrapStateRoot, MinerAddr: info.Miners[3].Address},
-		wFun)
-	// This should fix https://github.com/filecoin-project/go-filecoin/issues/1828
-	f2b2.Proof, f2b2.Ticket, err = chain.MakeProofAndWinningTicket(info.Miners[3].Address, info.Miners[3].Power, 1000)
+	fakeChildParams = th.FakeChildParams{
+		Parent:     th.RequireNewTipSet(require, f2b1),
+		GenesisCid: calcGenBlk.Cid(),
+		Signer:     mockSigner,
+
+		StateRoot: bootstrapStateRoot,
+		MinerAddr: info.Miners[3].Address,
+	}
+	f2b2 := th.RequireMkFakeChildCore(require, fakeChildParams, wFun)
+	f2b2.Proof, f2b2.Ticket, err = th.MakeProofAndWinningTicket(signerPubKey2, info.Miners[3].Power, 1000, mockSigner)
 	require.NoError(err)
 
-	f2 := testhelpers.RequireNewTipSet(require, f2b2)
-	f2Cids := requirePutBlocks(require, cst, f2.ToSlice()...)
-	// This is where the test fails https://github.com/filecoin-project/go-filecoin/issues/1828
-	err = syncer.HandleNewBlocks(ctx, f2Cids)
+	f2 := th.RequireNewTipSet(require, f2b2)
+	f2Cids := requirePutBlocks(require, blockSource, f2.ToSlice()...)
+	err = syncer.HandleNewTipset(ctx, f2Cids)
 	require.NoError(err)
 	assertHead(assert, chainStore, f2)
 	measuredWeight, err = wFun(chainStore.Head())

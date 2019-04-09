@@ -5,6 +5,7 @@ import (
 	"math/big"
 
 	"github.com/filecoin-project/go-filecoin/actor"
+	"github.com/filecoin-project/go-filecoin/actor/builtin/account"
 	"github.com/filecoin-project/go-filecoin/types"
 )
 
@@ -15,7 +16,9 @@ type SignedMessageValidator interface {
 	Validate(ctx context.Context, msg *types.SignedMessage, fromActor *actor.Actor) error
 }
 
-type defaultMessageValidator struct{}
+type defaultMessageValidator struct {
+	allowHighNonce bool
+}
 
 // NewDefaultMessageValidator creates a new default validator.
 // A default validator checks for both permanent semantic problems (e.g. invalid signature)
@@ -24,9 +27,16 @@ func NewDefaultMessageValidator() SignedMessageValidator {
 	return &defaultMessageValidator{}
 }
 
+// NewOutboundMessageValidator creates a new default validator for outbound messages. This
+// validator matches the default behaviour but allows nonces higher than the actor's current nonce
+// (allowing multiple messages to enter the mpool at once).
+func NewOutboundMessageValidator() SignedMessageValidator {
+	return &defaultMessageValidator{allowHighNonce: true}
+}
+
 var _ SignedMessageValidator = (*defaultMessageValidator)(nil)
 
-func (nmv *defaultMessageValidator) Validate(ctx context.Context, msg *types.SignedMessage, fromActor *actor.Actor) error {
+func (v *defaultMessageValidator) Validate(ctx context.Context, msg *types.SignedMessage, fromActor *actor.Actor) error {
 	if !msg.VerifySignature() {
 		return errInvalidSignature
 	}
@@ -35,12 +45,23 @@ func (nmv *defaultMessageValidator) Validate(ctx context.Context, msg *types.Sig
 		return errSelfSend
 	}
 
-	// sender must be an account actor.
-	if !fromActor.Code.Equals(types.AccountActorCodeCid) {
+	// Sender must be an account actor, or an empty actor which will be upgraded to an account actor
+	// when the message is processed.
+	if !(fromActor.Empty() || account.IsAccount(fromActor)) {
 		return errNonAccountActor
 	}
 
-	// avoid processing messages for actors that cannot pay.
+	if msg.Value.IsNegative() {
+		log.Info("Cannot transfer negative value", fromActor, msg.Value)
+		return errNegativeValue
+	}
+
+	if msg.GasLimit > types.BlockGasLimit {
+		log.Info("Message gas limit above block limit", fromActor, msg, types.BlockGasLimit)
+		return errGasAboveBlockLimit
+	}
+
+	// Avoid processing messages for actors that cannot pay.
 	if !canCoverGasLimit(msg, fromActor) {
 		log.Info("Insufficient funds to cover gas limit: ", fromActor, msg)
 		return errInsufficientGas
@@ -51,7 +72,7 @@ func (nmv *defaultMessageValidator) Validate(ctx context.Context, msg *types.Sig
 		return errNonceTooLow
 	}
 
-	if msg.Nonce > fromActor.Nonce {
+	if !v.allowHighNonce && msg.Nonce > fromActor.Nonce {
 		log.Info("Nonce too high: ", msg.Nonce, fromActor.Nonce, fromActor, msg)
 		return errNonceTooHigh
 	}

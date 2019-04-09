@@ -1,4 +1,4 @@
-package commands
+package commands_test
 
 import (
 	"encoding/json"
@@ -7,9 +7,10 @@ import (
 	"sync"
 	"testing"
 
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/assert"
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
+	"github.com/filecoin-project/go-filecoin/address"
 	"github.com/filecoin-project/go-filecoin/fixtures"
 	th "github.com/filecoin-project/go-filecoin/testhelpers"
 	"github.com/filecoin-project/go-filecoin/types"
@@ -20,47 +21,48 @@ func TestMessageSend(t *testing.T) {
 
 	d := th.NewDaemon(
 		t,
+		th.DefaultAddress(fixtures.TestAddresses[0]),
+		th.KeyFile(fixtures.KeyFilePaths()[1]),
+		// must include same-index KeyFilePath when configuring with a TestMiner.
 		th.WithMiner(fixtures.TestMiners[0]),
 		th.KeyFile(fixtures.KeyFilePaths()[0]),
-		th.KeyFile(fixtures.KeyFilePaths()[1]),
 	).Start()
 	defer d.ShutdownSuccess()
 
 	d.RunSuccess("mining", "once")
 
+	from := d.GetDefaultAddress() // this should = fixtures.TestAddresses[0]
+
 	t.Log("[failure] invalid target")
 	d.RunFail(
-		"invalid checksum",
+		address.ErrUnknownNetwork.Error(),
 		"message", "send",
-		"--from", fixtures.TestAddresses[0],
-		"--price", "0", "--limit", "300",
+		"--from", from,
+		"--gas-price", "0", "--gas-limit", "300",
 		"--value=10", "xyz",
 	)
 
 	t.Log("[success] with from")
-	defaultaddr := d.GetDefaultAddress()
 	d.RunSuccess("message", "send",
-		"--from", fixtures.TestAddresses[0],
-		"--price", "0", "--limit", "300",
-		defaultaddr,
+		"--from", from,
+		"--gas-price", "0",
+		"--gas-limit", "300",
+		fixtures.TestAddresses[3],
 	)
 
 	t.Log("[success] with from and value")
 	d.RunSuccess("message", "send",
-		"--from", fixtures.TestAddresses[0],
-		"--price", "0", "--limit", "300",
-		"--value=10", fixtures.TestAddresses[1],
+		"--from", from,
+		"--gas-price", "0",
+		"--gas-limit", "300",
+		"--value=10",
+		fixtures.TestAddresses[3],
 	)
 }
 
 func TestMessageWait(t *testing.T) {
 	t.Parallel()
-
-	d := th.NewDaemon(
-		t,
-		th.WithMiner(fixtures.TestMiners[0]),
-		th.KeyFile(fixtures.KeyFilePaths()[0]),
-	).Start()
+	d := makeTestDaemonWithMinerAndStart(t)
 	defer d.ShutdownSuccess()
 
 	t.Run("[success] transfer only", func(t *testing.T) {
@@ -69,7 +71,7 @@ func TestMessageWait(t *testing.T) {
 		msg := d.RunSuccess(
 			"message", "send",
 			"--from", fixtures.TestAddresses[0],
-			"--price", "0", "--limit", "300",
+			"--gas-price", "0", "--gas-limit", "300",
 			"--value=10",
 			fixtures.TestAddresses[1],
 		)
@@ -102,6 +104,7 @@ func TestMessageSendBlockGasLimit(t *testing.T) {
 
 	d := th.NewDaemon(
 		t,
+		// default address required
 		th.DefaultAddress(fixtures.TestAddresses[0]),
 		th.WithMiner(fixtures.TestMiners[0]),
 		th.KeyFile(fixtures.KeyFilePaths()[0]),
@@ -113,24 +116,17 @@ func TestMessageSendBlockGasLimit(t *testing.T) {
 	result := struct{ Messages []interface{} }{}
 
 	t.Run("when the gas limit is above the block limit, the message fails", func(t *testing.T) {
-		d.RunSuccess(
+		d.RunFail("block gas limit",
 			"message", "send",
-			"--price", "0", "--limit", doubleTheBlockGasLimit,
+			"--gas-price", "0", "--gas-limit", doubleTheBlockGasLimit,
 			"--value=10", fixtures.TestAddresses[1],
 		)
-
-		blockCid := d.RunSuccess("mining", "once").ReadStdoutTrimNewlines()
-
-		blockInfo := d.RunSuccess("show", "block", blockCid, "--enc", "json").ReadStdoutTrimNewlines()
-
-		require.NoError(t, json.Unmarshal([]byte(blockInfo), &result))
-		assert.Empty(t, result.Messages, "msg over the block gas limit fails validation and is _NOT_ run in the block")
 	})
 
 	t.Run("when the gas limit is below the block limit, the message succeeds", func(t *testing.T) {
 		d.RunSuccess(
 			"message", "send",
-			"--price", "0", "--limit", halfTheBlockGasLimit,
+			"--gas-price", "0", "--gas-limit", halfTheBlockGasLimit,
 			"--value=10", fixtures.TestAddresses[1],
 		)
 
@@ -140,5 +136,45 @@ func TestMessageSendBlockGasLimit(t *testing.T) {
 
 		require.NoError(t, json.Unmarshal([]byte(blockInfo), &result))
 		assert.NotEmpty(t, result.Messages, "msg under the block gas limit passes validation and is run in the block")
+	})
+}
+
+func TestMessageStatus(t *testing.T) {
+	t.Parallel()
+	d := makeTestDaemonWithMinerAndStart(t)
+	defer d.ShutdownSuccess()
+
+	t.Run("queue then on chain", func(t *testing.T) {
+		assert := assert.New(t)
+
+		msg := d.RunSuccess(
+			"message", "send",
+			"--from", fixtures.TestAddresses[0],
+			"--gas-price", "0", "--gas-limit", "300",
+			"--value=1234",
+			fixtures.TestAddresses[1],
+		)
+
+		msgcid := strings.Trim(msg.ReadStdout(), "\n")
+		status := d.RunSuccess("message", "status", msgcid).ReadStdout()
+
+		assert.Contains(status, "In outbox")
+		assert.Contains(status, "In mpool")
+		assert.NotContains(status, "On chain") // not found on chain (yet)
+		assert.Contains(status, "1234")        // the "value"
+
+		d.RunSuccess("mining once")
+
+		status = d.RunSuccess("message", "status", msgcid).ReadStdout()
+
+		assert.NotContains(status, "In outbox")
+		assert.NotContains(status, "In mpool")
+		assert.Contains(status, "On chain")
+		assert.Contains(status, "1234") // the "value"
+
+		status = d.RunSuccess("message", "status", "QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS").ReadStdout()
+		assert.NotContains(status, "In outbox")
+		assert.NotContains(status, "In mpool")
+		assert.NotContains(status, "On chain")
 	})
 }

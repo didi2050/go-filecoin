@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"gx/ipfs/QmNf3wujpV2Y7Lnj2hy2UrmuX8bhMDStRHbnSLh7Ypf36h/go-hamt-ipld"
-	"gx/ipfs/QmRu7tiRnFk9mMPpVECQTBQJqXtmG132jJxA1w9A7TtpBz/go-ipfs-blockstore"
-	"gx/ipfs/QmUadX5EcvrBmxAV9sE7wUWtWSqxns5K84qKJBixmcT1w9/go-datastore"
-	cbor "gx/ipfs/QmcZLyosDwMKdB6NLRsiss9HXzDPhVhhRtPy67JFKTDQDX/go-ipld-cbor"
+	"github.com/ipfs/go-datastore"
+	"github.com/ipfs/go-hamt-ipld"
+	"github.com/ipfs/go-ipfs-blockstore"
+	cbor "github.com/ipfs/go-ipld-cbor"
 
 	"github.com/filecoin-project/go-filecoin/abi"
 	"github.com/filecoin-project/go-filecoin/actor"
@@ -24,12 +24,11 @@ import (
 	"github.com/filecoin-project/go-filecoin/types"
 	"github.com/filecoin-project/go-filecoin/vm"
 
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/assert"
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-var ki = types.MustGenerateKeyInfo(10, types.GenerateKeyInfoSeed())
-var mockSigner = types.NewMockSigner(ki)
+var mockSigner, _ = types.NewMockSignersAndKeyInfo(10)
 
 func TestPaymentBrokerGenesis(t *testing.T) {
 	assert := assert.New(t)
@@ -559,7 +558,7 @@ func requireGenesis(ctx context.Context, t *testing.T, targetAddresses ...addres
 	vms := vm.NewStorageMap(bs)
 
 	cst := hamt.NewCborStore()
-	blk, err := consensus.InitGenesis(cst, bs)
+	blk, err := consensus.DefaultGenesis(cst, bs)
 	require.NoError(err)
 
 	st, err := state.LoadStateTree(ctx, cst, blk.StateRoot, builtin.Actors)

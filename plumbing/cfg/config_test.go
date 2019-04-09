@@ -4,8 +4,8 @@ import (
 	"github.com/filecoin-project/go-filecoin/address"
 	"github.com/filecoin-project/go-filecoin/config"
 	"github.com/filecoin-project/go-filecoin/repo"
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/assert"
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"testing"
 )
 
@@ -125,9 +125,9 @@ func TestConfigSet(t *testing.T) {
 		assert.EqualError(err, "json: cannot unmarshal string into Go struct field Config.bootstrap of type config.BootstrapConfig")
 
 		// bad address
-		jsonBlobBadAddr := "fcqnyc0muxjajygqavu645m8ja04vckk2kcorrupt"
+		jsonBlobBadAddr := "f4cqnyc0muxjajygqavu645m8ja04vckk2kcorrupt"
 		err = cfgAPI.Set("wallet.defaultAddress", jsonBlobBadAddr)
-		assert.EqualError(err, "invalid character")
+		assert.EqualError(err, address.ErrUnknownProtocol.Error())
 	})
 
 	t.Run("validates the node nickname", func(t *testing.T) {

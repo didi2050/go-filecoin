@@ -1,4 +1,4 @@
-package commands
+package commands_test
 
 import (
 	"bytes"
@@ -6,15 +6,32 @@ import (
 	"fmt"
 	"testing"
 
-	"gx/ipfs/QmR8BauakNcBa3RbE4nbQu76PDiJgoQgz8AJdhJuiU4TAw/go-cid"
+	"github.com/ipfs/go-cid"
 
 	"github.com/filecoin-project/go-filecoin/fixtures"
 	th "github.com/filecoin-project/go-filecoin/testhelpers"
 	"github.com/filecoin-project/go-filecoin/types"
 
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/assert"
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestChainHead(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+
+	d := th.NewDaemon(t).Start()
+	defer d.ShutdownSuccess()
+
+	op := d.RunSuccess("chain", "head")
+	result := op.ReadStdoutTrimNewlines()
+
+	maybeCid, err := cid.Decode(result)
+	require.NoError(err)
+
+	assert.Equal(result, maybeCid.String())
+}
 
 func TestChainDaemon(t *testing.T) {
 	t.Parallel()
@@ -23,7 +40,7 @@ func TestChainDaemon(t *testing.T) {
 		assert := assert.New(t)
 		require := require.New(t)
 
-		d := th.NewDaemon(t, th.WithMiner(fixtures.TestMiners[0])).Start()
+		d := makeTestDaemonWithMinerAndStart(t)
 		defer d.ShutdownSuccess()
 
 		op1 := d.RunSuccess("mining", "once", "--enc", "text")
@@ -76,7 +93,7 @@ func TestChainDaemon(t *testing.T) {
 		assert := assert.New(t)
 		require := require.New(t)
 
-		daemon := th.NewDaemon(t, th.WithMiner(fixtures.TestMiners[0])).Start()
+		daemon := makeTestDaemonWithMinerAndStart(t)
 		defer daemon.ShutdownSuccess()
 
 		var blocks []types.Block
@@ -98,7 +115,7 @@ func TestChainDaemon(t *testing.T) {
 		t.Parallel()
 		assert := assert.New(t)
 
-		daemon := th.NewDaemon(t, th.WithMiner(fixtures.TestMiners[0])).Start()
+		daemon := makeTestDaemonWithMinerAndStart(t)
 		defer daemon.ShutdownSuccess()
 
 		newBlockCid := daemon.RunSuccess("mining", "once", "--enc", "text").ReadStdoutTrimNewlines()
@@ -109,5 +126,19 @@ func TestChainDaemon(t *testing.T) {
 		assert.Contains(chainLsResult, fixtures.TestMiners[0])
 		assert.Contains(chainLsResult, "1")
 		assert.Contains(chainLsResult, "0")
+	})
+
+	t.Run("chain ls --long with JSON encoding returns integer string block height and nonce", func(t *testing.T) {
+		t.Parallel()
+		assert := assert.New(t)
+
+		daemon := makeTestDaemonWithMinerAndStart(t)
+		defer daemon.ShutdownSuccess()
+
+		daemon.RunSuccess("mining", "once", "--enc", "text")
+		chainLsResult := daemon.RunSuccess("chain", "ls", "--long", "--enc", "json").ReadStdoutTrimNewlines()
+		assert.Contains(chainLsResult, `"height":"0"`)
+		assert.Contains(chainLsResult, `"height":"1"`)
+		assert.Contains(chainLsResult, `"nonce":"0"`)
 	})
 }

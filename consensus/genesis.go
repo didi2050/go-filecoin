@@ -4,9 +4,9 @@ import (
 	"context"
 	"math/big"
 
-	"gx/ipfs/QmNf3wujpV2Y7Lnj2hy2UrmuX8bhMDStRHbnSLh7Ypf36h/go-hamt-ipld"
-	"gx/ipfs/QmRu7tiRnFk9mMPpVECQTBQJqXtmG132jJxA1w9A7TtpBz/go-ipfs-blockstore"
-	"gx/ipfs/QmTu65MVbemtUxJEWgsTtzv9Zv9P8rvmqNA4eG9TrTRGYc/go-libp2p-peer"
+	"github.com/ipfs/go-hamt-ipld"
+	"github.com/ipfs/go-ipfs-blockstore"
+	"github.com/libp2p/go-libp2p-peer"
 
 	"github.com/filecoin-project/go-filecoin/actor"
 	"github.com/filecoin-project/go-filecoin/actor/builtin"
@@ -90,8 +90,8 @@ func NewEmptyConfig() *Config {
 	}
 }
 
-// MakeGenesisFunc is a method used to define a custom genesis function
-func MakeGenesisFunc(opts ...GenOption) func(cst *hamt.CborIpldStore, bs blockstore.Blockstore) (*types.Block, error) {
+// MakeGenesisFunc returns a genesis function configured by a set of options.
+func MakeGenesisFunc(opts ...GenOption) GenesisInitFunc {
 	return func(cst *hamt.CborIpldStore, bs blockstore.Blockstore) (*types.Block, error) {
 		ctx := context.Background()
 		st := state.NewEmptyStateTreeWithActors(cst, builtin.Actors)
@@ -175,8 +175,8 @@ func MakeGenesisFunc(opts ...GenOption) func(cst *hamt.CborIpldStore, bs blockst
 	}
 }
 
-// InitGenesis is the default function to create the genesis block.
-func InitGenesis(cst *hamt.CborIpldStore, bs blockstore.Blockstore) (*types.Block, error) {
+// DefaultGenesis creates a genesis block with default accounts and actors installed.
+func DefaultGenesis(cst *hamt.CborIpldStore, bs blockstore.Blockstore) (*types.Block, error) {
 	return MakeGenesisFunc()(cst, bs)
 }
 

@@ -15,8 +15,8 @@ import (
 	"github.com/filecoin-project/go-filecoin/core"
 	th "github.com/filecoin-project/go-filecoin/testhelpers"
 	"github.com/filecoin-project/go-filecoin/types"
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/assert"
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestStorageMarketCreateMiner(t *testing.T) {
@@ -27,7 +27,7 @@ func TestStorageMarketCreateMiner(t *testing.T) {
 
 	st, vms := core.CreateStorages(ctx, t)
 
-	pid := th.RequireRandomPeerID()
+	pid := th.RequireRandomPeerID(require)
 	pdata := actor.MustConvertParams(big.NewInt(10), []byte{}, pid)
 	msg := types.NewMessage(address.TestAddress, address.StorageMarketAddress, 0, types.NewAttoFILFromFIL(100), "createMiner", pdata)
 	result, err := th.ApplyTestMessage(st, vms, msg, types.NewBlockHeight(0))
@@ -36,6 +36,7 @@ func TestStorageMarketCreateMiner(t *testing.T) {
 
 	outAddr, err := address.NewFromBytes(result.Receipt.Return[0])
 	require.NoError(err)
+
 	minerActor, err := st.GetActor(ctx, outAddr)
 	require.NoError(err)
 
@@ -61,7 +62,7 @@ func TestStorageMarketCreateMinerPledgeTooLow(t *testing.T) {
 
 	pledge := big.NewInt(5)
 	st, vms := core.CreateStorages(ctx, t)
-	pdata := actor.MustConvertParams(pledge, []byte{}, th.RequireRandomPeerID())
+	pdata := actor.MustConvertParams(pledge, []byte{}, th.RequireRandomPeerID(require))
 	msg := types.NewMessage(address.TestAddress, address.StorageMarketAddress, 0, MinimumCollateral(pledge), "createMiner", pdata)
 	result, err := th.ApplyTestMessage(st, vms, msg, types.NewBlockHeight(0))
 
@@ -77,7 +78,7 @@ func TestStorageMarketCreateMinerInsufficientCollateral(t *testing.T) {
 	defer cancel()
 
 	st, vms := core.CreateStorages(ctx, t)
-	pdata := actor.MustConvertParams(big.NewInt(15000), []byte{}, th.RequireRandomPeerID())
+	pdata := actor.MustConvertParams(big.NewInt(15000), []byte{}, th.RequireRandomPeerID(require))
 	msg := types.NewMessage(address.TestAddress, address.StorageMarketAddress, 0, types.NewAttoFILFromFIL(14), "createMiner", pdata)
 	result, err := th.ApplyTestMessage(st, vms, msg, types.NewBlockHeight(0))
 
@@ -103,7 +104,7 @@ func TestStorageMarkeCreateMinerDoesNotOverwriteActorBalance(t *testing.T) {
 	require.NoError(err)
 	require.Equal(uint8(0), result.Receipt.ExitCode)
 
-	pdata := actor.MustConvertParams(big.NewInt(15), []byte{}, th.RequireRandomPeerID())
+	pdata := actor.MustConvertParams(big.NewInt(15), []byte{}, th.RequireRandomPeerID(require))
 	msg = types.NewMessage(address.TestAddress, address.StorageMarketAddress, 0, types.NewAttoFILFromFIL(200), "createMiner", pdata)
 	result, err = th.ApplyTestMessage(st, vms, msg, types.NewBlockHeight(0))
 	require.NoError(err)
@@ -114,7 +115,6 @@ func TestStorageMarkeCreateMinerDoesNotOverwriteActorBalance(t *testing.T) {
 	createdAddress, err := address.NewFromBytes(result.Receipt.Return[0])
 	require.NoError(err)
 	assert.Equal(minerAddr, createdAddress)
-
 	miner, err := st.GetActor(ctx, minerAddr)
 	require.NoError(err)
 
@@ -131,7 +131,7 @@ func TestStorageMarkeCreateMinerErrorsOnInvalidKey(t *testing.T) {
 	st, vms := core.CreateStorages(ctx, t)
 
 	publicKey := []byte("012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567")
-	pdata := actor.MustConvertParams(big.NewInt(15), publicKey, th.RequireRandomPeerID())
+	pdata := actor.MustConvertParams(big.NewInt(15), publicKey, th.RequireRandomPeerID(require))
 
 	msg := types.NewMessage(address.TestAddress, address.StorageMarketAddress, 0, types.NewAttoFILFromFIL(200), "createMiner", pdata)
 	result, err := th.ApplyTestMessage(st, vms, msg, types.NewBlockHeight(0))
@@ -154,14 +154,12 @@ func deriveMinerAddress(creator address.Address, nonce uint64) (address.Address,
 	buf := new(bytes.Buffer)
 
 	if _, err := buf.Write(creator.Bytes()); err != nil {
-		return address.Address{}, err
+		return address.Undef, err
 	}
 
 	if err := binary.Write(buf, binary.BigEndian, nonce); err != nil {
-		return address.Address{}, err
+		return address.Undef, err
 	}
 
-	hash := address.Hash(buf.Bytes())
-
-	return address.NewMainnet(hash), nil
+	return address.NewActorAddress(buf.Bytes())
 }

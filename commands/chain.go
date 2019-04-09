@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"strings"
 
-	"gx/ipfs/QmQtQrtNioesAWtrx8csBvfY37gTe94d6wQ3VikZUjxD39/go-ipfs-cmds"
-	"gx/ipfs/QmR8BauakNcBa3RbE4nbQu76PDiJgoQgz8AJdhJuiU4TAw/go-cid"
-	"gx/ipfs/Qmde5VP1qUkyQXKCfmEUA7bP64V2HAptbJ7phuPp7jXWwg/go-ipfs-cmdkit"
+	"github.com/ipfs/go-cid"
+	"github.com/ipfs/go-ipfs-cmdkit"
+	"github.com/ipfs/go-ipfs-cmds"
 
 	"github.com/filecoin-project/go-filecoin/types"
 )
@@ -29,18 +29,20 @@ var chainHeadCmd = &cmds.Command{
 		Tagline: "Get heaviest tipset CIDs",
 	},
 	Run: func(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment) error {
-		ts := GetPorcelainAPI(env).ChainHead(req.Context)
-
-		// Sort CIDs for a stable order
-		tsSlice := ts.ToSlice()
-		out := types.SortedCidSet{}
-		for _, b := range tsSlice {
-			out.Add(b.Cid())
-		}
-
-		return re.Emit(out)
+		return re.Emit(GetPorcelainAPI(env).ChainHead(req.Context).ToSortedCidSet())
 	},
 	Type: []cid.Cid{},
+	Encoders: cmds.EncoderMap{
+		cmds.Text: cmds.MakeTypedEncoder(func(req *cmds.Request, w io.Writer, res []cid.Cid) error {
+			for _, r := range res {
+				_, err := fmt.Fprintln(w, r.String())
+				if err != nil {
+					return err
+				}
+			}
+			return nil
+		}),
+	},
 }
 
 var chainLsCmd = &cmds.Command{

@@ -1,4 +1,4 @@
-package commands
+package commands_test
 
 import (
 	"os"
@@ -11,8 +11,8 @@ import (
 	"github.com/filecoin-project/go-filecoin/fixtures"
 	th "github.com/filecoin-project/go-filecoin/testhelpers"
 
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/assert"
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAddrsNewAndList(t *testing.T) {
@@ -24,10 +24,10 @@ func TestAddrsNewAndList(t *testing.T) {
 
 	addrs := make([]string, 10)
 	for i := 0; i < 10; i++ {
-		addrs[i] = d.CreateWalletAddr()
+		addrs[i] = d.CreateAddress()
 	}
 
-	list := d.RunSuccess("wallet", "addrs", "ls").ReadStdout()
+	list := d.RunSuccess("address", "ls").ReadStdout()
 	for _, addr := range addrs {
 		assert.Contains(list, addr)
 	}
@@ -39,7 +39,7 @@ func TestWalletBalance(t *testing.T) {
 
 	d := th.NewDaemon(t).Start()
 	defer d.ShutdownSuccess()
-	addr := d.CreateWalletAddr()
+	addr := d.CreateAddress()
 
 	t.Log("[success] not found, zero")
 	balance := d.RunSuccess("wallet", "balance", addr)
@@ -50,24 +50,28 @@ func TestWalletBalance(t *testing.T) {
 	assert.Equal("9999900000", balance.ReadStdoutTrimNewlines())
 
 	t.Log("[success] newly generated one")
-	addrNew := d.RunSuccess("wallet addrs new")
+	addrNew := d.RunSuccess("address new")
 	balance = d.RunSuccess("wallet", "balance", addrNew.ReadStdoutTrimNewlines())
 	assert.Equal("0", balance.ReadStdoutTrimNewlines())
 }
 
 func TestAddrLookupAndUpdate(t *testing.T) {
 	assert := assert.New(t)
-	d1 := th.NewDaemon(t, th.WithMiner(fixtures.TestMiners[0]), th.KeyFile(fixtures.KeyFilePaths()[1])).Start()
-	defer d1.ShutdownSuccess()
 
-	d := th.NewDaemon(t, th.WithMiner(fixtures.TestMiners[0]), th.KeyFile(fixtures.KeyFilePaths()[0])).Start()
+	d := makeTestDaemonWithMinerAndStart(t)
 	defer d.ShutdownSuccess()
+
+	d1 := th.NewDaemon(t,
+		th.WithMiner(fixtures.TestMiners[0]),
+		th.KeyFile(fixtures.KeyFilePaths()[0]),
+		th.KeyFile(fixtures.KeyFilePaths()[1])).Start()
+	defer d1.ShutdownSuccess()
 
 	d1.ConnectSuccess(d)
 
 	addr := fixtures.TestAddresses[0]
 	minerAddr := fixtures.TestMiners[0]
-	minerPidForUpdate := th.RequireRandomPeerID()
+	minerPidForUpdate := th.RequireRandomPeerID(require.New(t))
 
 	// capture original, pre-update miner pid
 	lookupOutA := th.RunSuccessFirstLine(d, "address", "lookup", minerAddr)
@@ -79,8 +83,8 @@ func TestAddrLookupAndUpdate(t *testing.T) {
 	updateMsg := th.RunSuccessFirstLine(d,
 		"miner", "update-peerid",
 		"--from", addr,
-		"--price", "0",
-		"--limit", "300",
+		"--gas-price", "0",
+		"--gas-limit", "300",
 		minerAddr,
 		minerPidForUpdate.Pretty(),
 	)

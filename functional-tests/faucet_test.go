@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/assert"
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/filecoin-project/go-filecoin/commands"
-	iptbtester "github.com/filecoin-project/go-filecoin/testhelpers/iptbtester"
+	"github.com/filecoin-project/go-filecoin/testhelpers/iptbtester"
 )
 
 var runFunctionalTests = flag.Bool("functional", false, "Run the functional go tests")
@@ -80,7 +80,7 @@ func TestFaucetSendFunds(t *testing.T) {
 
 	// Get address for target node
 	var targetAddr commands.AddressLsResult
-	node1.MustRunCmdJSON(ctx, &targetAddr, "go-filecoin", "wallet", "addrs", "ls")
+	node1.MustRunCmdJSON(ctx, &targetAddr, "go-filecoin", "address", "ls")
 
 	// Start Tests
 

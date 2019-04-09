@@ -3,7 +3,6 @@ package testing
 import (
 	"context"
 	"encoding/hex"
-	"fmt"
 	"io/ioutil"
 	"os"
 	"sort"
@@ -11,12 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"gx/ipfs/QmR8BauakNcBa3RbE4nbQu76PDiJgoQgz8AJdhJuiU4TAw/go-cid"
+	cid "github.com/ipfs/go-cid"
+	"github.com/stretchr/testify/require"
 
 	"github.com/filecoin-project/go-filecoin/proofs"
 	"github.com/filecoin-project/go-filecoin/proofs/sectorbuilder"
-
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/require"
 )
 
 // MaxTimeToSealASector represents the maximum amount of time the test should
@@ -24,6 +22,10 @@ import (
 // computer, so we need to select a value which works for slow (CircleCI OSX
 // build containers) and fast (developer machines) alike.
 const MaxTimeToSealASector = time.Second * 360
+
+// MaxTimeToGenerateSectorPoSt represents the maximum amount of time the test
+// should wait for a proof-of-spacetime to be generated for a sector.
+const MaxTimeToGenerateSectorPoSt = time.Second * 360
 
 func TestSectorBuilder(t *testing.T) {
 	if os.Getenv("FILECOIN_RUN_SECTOR_BUILDER_TESTS") != "true" {
@@ -55,7 +57,10 @@ func TestSectorBuilder(t *testing.T) {
 		for i := 0; i < autoSealsToSchedule; i++ {
 			go func(n int) {
 				time.Sleep(time.Second * time.Duration(n))
-				h.SectorBuilder.SealAllStagedSectors(context.Background())
+				err := h.SectorBuilder.SealAllStagedSectors(context.Background())
+				if err != nil {
+					errs <- err
+				}
 			}(i)
 		}
 
@@ -182,10 +187,10 @@ func TestSectorBuilder(t *testing.T) {
 		defer h.Close()
 
 		inputBytes := RequireRandomBytes(t, h.MaxBytesPerSector)
-		info, err := h.CreatePieceInfo(inputBytes)
+		ref, size, reader, err := h.CreateAddPieceArgs(inputBytes)
 		require.NoError(t, err)
 
-		sectorID, err := h.SectorBuilder.AddPiece(context.Background(), info)
+		sectorID, err := h.SectorBuilder.AddPiece(context.Background(), ref, size, reader)
 		require.NoError(t, err)
 
 		// Sealing can take 180+ seconds on an i7 MacBook Pro. We are sealing
@@ -212,7 +217,7 @@ func TestSectorBuilder(t *testing.T) {
 			t.Fatalf("timed out waiting for seal to complete")
 		}
 
-		reader, err := h.SectorBuilder.ReadPieceFromSealedSector(info.Ref)
+		reader, err = h.SectorBuilder.ReadPieceFromSealedSector(ref)
 		require.NoError(t, err)
 
 		outputBytes, err := ioutil.ReadAll(reader)
@@ -255,7 +260,8 @@ func TestSectorBuilder(t *testing.T) {
 		sectorIDSet.Store(sectorIDB, true)
 
 		// seal everything
-		hB.SectorBuilder.SealAllStagedSectors(context.Background())
+		err = hB.SectorBuilder.SealAllStagedSectors(context.Background())
+		require.NoError(t, err)
 
 		timeout := time.After(MaxTimeToSealASector * 2)
 	Loop:
@@ -291,15 +297,13 @@ func TestSectorBuilder(t *testing.T) {
 		defer h.Close()
 
 		inputBytes := RequireRandomBytes(t, h.MaxBytesPerSector)
-		info, err := h.CreatePieceInfo(inputBytes)
+		ref, size, reader, err := h.CreateAddPieceArgs(inputBytes)
 		require.NoError(t, err)
 
-		sectorID, err := h.SectorBuilder.AddPiece(context.Background(), info)
+		sectorID, err := h.SectorBuilder.AddPiece(context.Background(), ref, size, reader)
 		require.NoError(t, err)
 
-		// Sealing can take 180+ seconds on an i7 MacBook Pro. We are sealing
-		// but one sector in this test.
-		timeout := time.After(MaxTimeToSealASector)
+		timeout := time.After(MaxTimeToSealASector + MaxTimeToGenerateSectorPoSt)
 
 		select {
 		case val := <-h.SectorBuilder.SectorSealResults():
@@ -311,24 +315,18 @@ func TestSectorBuilder(t *testing.T) {
 			challengeSeed := proofs.PoStChallengeSeed{1, 2, 3}
 
 			// generate a proof-of-spacetime
-			gres, gerr := h.SectorBuilder.GeneratePoST(sectorbuilder.GeneratePoSTRequest{
+			gres, gerr := h.SectorBuilder.GeneratePoSt(sectorbuilder.GeneratePoStRequest{
 				CommRs:        []proofs.CommR{val.SealingResult.CommR},
 				ChallengeSeed: challengeSeed,
 			})
 			require.NoError(t, gerr)
 
-			// TODO: Replace these hard-coded values (in rust-fil-proofs) with an
-			// end-to-end PoST test over a small number of replica commitments
-			require.Equal(t, "00101010", fmt.Sprintf("%08b", gres.Proof[0]))
-			require.Equal(t, 1, len(gres.Faults))
-			require.Equal(t, uint64(0), gres.Faults[0])
-
 			// verify the proof-of-spacetime
 			vres, verr := (&proofs.RustVerifier{}).VerifyPoST(proofs.VerifyPoSTRequest{
-				ChallengeSeed: proofs.PoStChallengeSeed{},
+				ChallengeSeed: challengeSeed,
 				CommRs:        []proofs.CommR{val.SealingResult.CommR},
 				Faults:        gres.Faults,
-				Proof:         gres.Proof,
+				Proofs:        gres.Proofs,
 				StoreType:     proofs.Test,
 			})
 

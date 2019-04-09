@@ -6,21 +6,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/filecoin-project/go-filecoin/testhelpers"
-
-	"gx/ipfs/QmNf3wujpV2Y7Lnj2hy2UrmuX8bhMDStRHbnSLh7Ypf36h/go-hamt-ipld"
+	"github.com/ipfs/go-hamt-ipld"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/filecoin-project/go-filecoin/chain"
 	"github.com/filecoin-project/go-filecoin/consensus"
 	"github.com/filecoin-project/go-filecoin/core"
+	th "github.com/filecoin-project/go-filecoin/testhelpers"
 	"github.com/filecoin-project/go-filecoin/types"
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/assert"
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/require"
 )
 
-var seed = types.GenerateKeyInfoSeed()
-var ki = types.MustGenerateKeyInfo(10, seed)
-var mockSigner = types.NewMockSigner(ki)
+var mockSigner, _ = types.NewMockSignersAndKeyInfo(10)
+
 var newSignedMessage = types.NewSignedMessageForTestGetter(mockSigner)
 
 func testWaitHelp(wg *sync.WaitGroup, assert *assert.Assertions, waiter *Waiter, expectMsg *types.SignedMessage, expectError bool, cb func(*types.Block, *types.SignedMessage, *types.MessageReceipt) error) {
@@ -46,12 +44,12 @@ type smsgs []*types.SignedMessage
 type smsgsSet [][]*types.SignedMessage
 
 func setupTest(require *require.Assertions) (*hamt.CborIpldStore, *chain.DefaultStore, *Waiter) {
-	d := requireCommonDeps(require)
+	d := requiredCommonDeps(require, consensus.DefaultGenesis)
 	return d.cst, d.chainStore, NewWaiter(d.chainStore, d.blockstore, d.cst)
 }
 
 func setupTestWithGif(require *require.Assertions, gif consensus.GenesisInitFunc) (*hamt.CborIpldStore, *chain.DefaultStore, *Waiter) {
-	d := requireCommonDepsWithGif(require, gif)
+	d := requiredCommonDeps(require, gif)
 	return d.cst, d.chainStore, NewWaiter(d.chainStore, d.blockstore, d.cst)
 }
 
@@ -71,7 +69,7 @@ func testWaitExisting(ctx context.Context, assert *assert.Assertions, require *r
 	chainWithMsgs := core.NewChainWithMessages(cst, chainStore.Head(), smsgsSet{smsgs{m1, m2}})
 	ts := chainWithMsgs[len(chainWithMsgs)-1]
 	require.Equal(1, len(ts))
-	chain.RequirePutTsas(ctx, require, chainStore, &chain.TipSetAndState{
+	th.RequirePutTsas(ctx, require, chainStore, &chain.TipSetAndState{
 		TipSet:          ts,
 		TipSetStateRoot: ts.ToSlice()[0].StateRoot,
 	})
@@ -95,7 +93,7 @@ func testWaitNew(ctx context.Context, assert *assert.Assertions, require *requir
 
 	ts := chainWithMsgs[len(chainWithMsgs)-1]
 	require.Equal(1, len(ts))
-	chain.RequirePutTsas(ctx, require, chainStore, &chain.TipSetAndState{
+	th.RequirePutTsas(ctx, require, chainStore, &chain.TipSetAndState{
 		TipSet:          ts,
 		TipSetStateRoot: ts.ToSlice()[0].StateRoot,
 	})
@@ -131,7 +129,7 @@ func TestWaitConflicting(t *testing.T) {
 	ctx := context.Background()
 
 	addr1, addr2, addr3 := mockSigner.Addresses[0], mockSigner.Addresses[1], mockSigner.Addresses[2]
-
+	pubkey1, pubkey2 := mockSigner.PubKeys[0], mockSigner.PubKeys[1]
 	// create a valid miner
 	minerAddr := mockSigner.Addresses[3]
 
@@ -139,7 +137,7 @@ func TestWaitConflicting(t *testing.T) {
 		consensus.ActorAccount(addr1, types.NewAttoFILFromFIL(10000)),
 		consensus.ActorAccount(addr2, types.NewAttoFILFromFIL(0)),
 		consensus.ActorAccount(addr3, types.NewAttoFILFromFIL(0)),
-		consensus.MinerActor(minerAddr, addr3, []byte{}, 1000, testhelpers.RequireRandomPeerID(), types.ZeroAttoFIL),
+		consensus.MinerActor(minerAddr, addr3, []byte{}, 1000, th.RequireRandomPeerID(require), types.ZeroAttoFIL),
 	)
 	cst, chainStore, waiter := setupTestWithGif(require, testGen)
 
@@ -158,27 +156,38 @@ func TestWaitConflicting(t *testing.T) {
 
 	require.NotNil(chainStore.GenesisCid())
 
-	b1 := chain.RequireMkFakeChild(require,
-		chain.FakeChildParams{
-			Parent: baseTS, GenesisCid: chainStore.GenesisCid(), StateRoot: baseBlock.StateRoot, MinerAddr: minerAddr})
+	b1 := th.RequireMkFakeChild(require,
+		th.FakeChildParams{
+			MinerAddr:   minerAddr,
+			Parent:      baseTS,
+			GenesisCid:  chainStore.GenesisCid(),
+			StateRoot:   baseBlock.StateRoot,
+			Signer:      mockSigner,
+			MinerPubKey: pubkey1,
+		})
 	b1.Messages = []*types.SignedMessage{sm1}
 	b1.Ticket = []byte{0} // block 1 comes first in message application
 	core.MustPut(cst, b1)
 
-	b2 := chain.RequireMkFakeChild(require,
-		chain.FakeChildParams{
-			Parent: baseTS, GenesisCid: chainStore.GenesisCid(),
-			StateRoot: baseBlock.StateRoot, Nonce: uint64(1), MinerAddr: minerAddr})
+	b2 := th.RequireMkFakeChild(require,
+		th.FakeChildParams{
+			MinerAddr:   minerAddr,
+			Parent:      baseTS,
+			GenesisCid:  chainStore.GenesisCid(),
+			StateRoot:   baseBlock.StateRoot,
+			Signer:      mockSigner,
+			MinerPubKey: pubkey2,
+			Nonce:       uint64(1)})
 	b2.Messages = []*types.SignedMessage{sm2}
 	b2.Ticket = []byte{1}
 	core.MustPut(cst, b2)
 
-	ts := testhelpers.RequireNewTipSet(require, b1, b2)
-	chain.RequirePutTsas(ctx, require, chainStore, &chain.TipSetAndState{
+	ts := th.RequireNewTipSet(require, b1, b2)
+	th.RequirePutTsas(ctx, require, chainStore, &chain.TipSetAndState{
 		TipSet:          ts,
 		TipSetStateRoot: baseBlock.StateRoot,
 	})
-	chainStore.SetHead(ctx, ts)
+	assert.NoError(chainStore.SetHead(ctx, ts))
 	msgApplySucc := func(b *types.Block, msg *types.SignedMessage,
 		rcp *types.MessageReceipt) error {
 		assert.NotNil(rcp)

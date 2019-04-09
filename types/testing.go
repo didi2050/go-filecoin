@@ -1,16 +1,18 @@
 package types
 
 import (
+	"bytes"
 	"fmt"
 
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/assert"
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/require"
-
-	"gx/ipfs/QmR8BauakNcBa3RbE4nbQu76PDiJgoQgz8AJdhJuiU4TAw/go-cid"
-	"gx/ipfs/QmZp3eKdYQHHAneECmeK6HhiMwTPufmjC8DuuaGKv3unvx/blake2b-simd"
+	"github.com/ipfs/go-cid"
+	"github.com/minio/blake2b-simd"
+	"github.com/pkg/errors"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/filecoin-project/go-filecoin/address"
 	"github.com/filecoin-project/go-filecoin/crypto"
+	"github.com/filecoin-project/go-filecoin/proofs"
 	wutil "github.com/filecoin-project/go-filecoin/wallet/util"
 )
 
@@ -35,6 +37,7 @@ func (mr *MockRecoverer) Ecrecover(data []byte, sig Signature) ([]byte, error) {
 type MockSigner struct {
 	AddrKeyInfo map[address.Address]KeyInfo
 	Addresses   []address.Address
+	PubKeys     [][]byte
 }
 
 // NewMockSigner returns a new mock signer, capable of signing data with
@@ -45,13 +48,23 @@ func NewMockSigner(kis []KeyInfo) MockSigner {
 	for _, k := range kis {
 		// extract public key
 		pub := k.PublicKey()
-		addrHash := address.Hash(pub)
-		newAddr := address.NewMainnet(addrHash)
+		newAddr, err := address.NewSecp256k1Address(pub)
+		if err != nil {
+			panic(err)
+		}
 		ms.Addresses = append(ms.Addresses, newAddr)
 		ms.AddrKeyInfo[newAddr] = k
-
+		ms.PubKeys = append(ms.PubKeys, pub)
 	}
 	return ms
+}
+
+// NewMockSignersAndKeyInfo is a convenience function to generate a mock
+// signers with some keys.
+func NewMockSignersAndKeyInfo(numSigners int) (MockSigner, []KeyInfo) {
+	ki := MustGenerateKeyInfo(numSigners, GenerateKeyInfoSeed())
+	signer := NewMockSigner(ki)
+	return signer, ki
 }
 
 // SignBytes cryptographically signs `data` using the Address `addr`.
@@ -65,6 +78,44 @@ func (ms MockSigner) SignBytes(data []byte, addr address.Address) (Signature, er
 	return crypto.Sign(ki.Key(), hash[:])
 }
 
+// GetAddressForPubKey looks up a KeyInfo address associated with a given PublicKey for a MockSigner
+func (ms MockSigner) GetAddressForPubKey(pk []byte) (address.Address, error) {
+	var addr address.Address
+
+	for _, ki := range ms.AddrKeyInfo {
+		testPk := ki.PublicKey()
+
+		if bytes.Equal(testPk, pk) {
+			addr, err := ki.Address()
+			if err != nil {
+				return addr, errors.New("could not fetch address")
+			}
+			return addr, nil
+		}
+	}
+	return addr, errors.New("public key not found in wallet")
+}
+
+// CreateTicket is effectively a duplicate of Wallet CreateTicket for testing purposes.
+func (ms MockSigner) CreateTicket(proof proofs.PoStProof, signerPubKey []byte) (Signature, error) {
+	var ticket Signature
+
+	signerAddr, err := ms.GetAddressForPubKey(signerPubKey)
+	if err != nil {
+		return ticket, err
+	}
+
+	buf := append(proof[:], signerAddr.Bytes()...)
+	h := blake2b.Sum256(buf)
+
+	ticket, err = ms.SignBytes(h[:], signerAddr)
+	if err != nil {
+		errMsg := fmt.Sprintf("SignBytes error in CreateTicket: %s", err.Error())
+		panic(errMsg)
+	}
+	return ticket, nil
+}
+
 // NewSignedMessageForTestGetter returns a closure that returns a SignedMessage unique to that invocation.
 // The message is unique wrt the closure returned, not globally. You can use this function
 // in tests instead of manually creating messages -- it both reduces duplication and gives us
@@ -76,9 +127,13 @@ func NewSignedMessageForTestGetter(ms MockSigner) func() *SignedMessage {
 	return func() *SignedMessage {
 		s := fmt.Sprintf("smsg%d", i)
 		i++
+		newAddr, err := address.NewActorAddress([]byte(s + "-to"))
+		if err != nil {
+			panic(err)
+		}
 		msg := NewMessage(
 			ms.Addresses[0], // from needs to be an address from the signer
-			address.NewMainnet([]byte(s+"-to")),
+			newAddr,
 			0,
 			NewAttoFILFromFIL(0),
 			s,
@@ -122,9 +177,17 @@ func NewMessageForTestGetter() func() *Message {
 	return func() *Message {
 		s := fmt.Sprintf("msg%d", i)
 		i++
+		from, err := address.NewActorAddress([]byte(s + "-from"))
+		if err != nil {
+			panic(err)
+		}
+		to, err := address.NewActorAddress([]byte(s + "-to"))
+		if err != nil {
+			panic(err)
+		}
 		return NewMessage(
-			address.NewMainnet([]byte(s+"-from")),
-			address.NewMainnet([]byte(s+"-to")),
+			from,
+			to,
 			0,
 			nil,
 			s,

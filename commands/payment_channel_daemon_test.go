@@ -1,4 +1,4 @@
-package commands
+package commands_test
 
 import (
 	"fmt"
@@ -6,13 +6,13 @@ import (
 	"sync"
 	"testing"
 
-	"gx/ipfs/QmR8BauakNcBa3RbE4nbQu76PDiJgoQgz8AJdhJuiU4TAw/go-cid"
-	cbor "gx/ipfs/QmcZLyosDwMKdB6NLRsiss9HXzDPhVhhRtPy67JFKTDQDX/go-ipld-cbor"
+	"github.com/ipfs/go-cid"
+	cbor "github.com/ipfs/go-ipld-cbor"
 
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/assert"
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
-	"gx/ipfs/QmekxXDhCxCJRNuzmHreuaT3BsuJcsjcXWNrtV9C8DRHtd/go-multibase"
+	"github.com/multiformats/go-multibase"
 
 	"github.com/filecoin-project/go-filecoin/actor/builtin/paymentbroker"
 	"github.com/filecoin-project/go-filecoin/address"
@@ -25,15 +25,11 @@ func TestPaymentChannelCreateSuccess(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
 
-	d := th.NewDaemon(
-		t,
-		th.WithMiner(fixtures.TestMiners[0]),
-		th.KeyFile(fixtures.KeyFilePaths()[0]),
-	).Start()
+	d := makeTestDaemonWithMinerAndStart(t)
 	defer d.ShutdownSuccess()
 
 	args := []string{"paych", "create"}
-	args = append(args, "--from", fixtures.TestAddresses[0], "--price", "0", "--limit", "300")
+	args = append(args, "--from", fixtures.TestAddresses[0], "--gas-price", "0", "--gas-limit", "300")
 	args = append(args, fixtures.TestAddresses[1], "10000", "20")
 
 	paymentChannelCmd := d.RunSuccess(args...)
@@ -159,7 +155,9 @@ func TestPaymentChannelRedeemSuccess(t *testing.T) {
 
 	targetDaemon := th.NewDaemon(
 		t,
+		// must include 0th keyfilepath if using 0th TestMiner
 		th.WithMiner(fixtures.TestMiners[0]),
+		th.KeyFile(fixtures.KeyFilePaths()[0]),
 		th.KeyFile(fixtures.KeyFilePaths()[1]),
 	).Start()
 	defer targetDaemon.ShutdownSuccess()
@@ -192,7 +190,9 @@ func TestPaymentChannelRedeemTooEarlyFails(t *testing.T) {
 
 	targetDaemon := th.NewDaemon(
 		t,
+		// must include 0th keyfilepath if using 0th TestMiner
 		th.WithMiner(fixtures.TestMiners[0]),
+		th.KeyFile(fixtures.KeyFilePaths()[0]),
 		th.KeyFile(fixtures.KeyFilePaths()[1]),
 	).Start()
 	defer targetDaemon.ShutdownSuccess()
@@ -227,7 +227,11 @@ func TestPaymentChannelReclaimSuccess(t *testing.T) {
 	eol := types.NewBlockHeight(5)
 	amt := types.NewAttoFILFromFIL(1000)
 
-	targetDaemon := th.NewDaemon(t, th.KeyFile(fixtures.KeyFilePaths()[1]), th.WithMiner(fixtures.TestMiners[0])).Start()
+	targetDaemon := th.NewDaemon(t,
+		th.KeyFile(fixtures.KeyFilePaths()[1]),
+		// must include 0th keyfilepath if using 0th TestMiner
+		th.KeyFile(fixtures.KeyFilePaths()[0]),
+		th.WithMiner(fixtures.TestMiners[0])).Start()
 	defer targetDaemon.ShutdownSuccess()
 
 	daemonTestWithPaymentChannel(t, &payer, &target, amt, eol, func(d *th.TestDaemon, channelID *types.ChannelID) {
@@ -277,7 +281,11 @@ func TestPaymentChannelCloseSuccess(t *testing.T) {
 	eol := types.NewBlockHeight(100)
 	amt := types.NewAttoFILFromFIL(10000)
 
-	targetDaemon := th.NewDaemon(t, th.KeyFile(fixtures.KeyFilePaths()[1]), th.WithMiner(fixtures.TestMiners[0])).Start()
+	targetDaemon := th.NewDaemon(t,
+		th.KeyFile(fixtures.KeyFilePaths()[1]),
+		// must include 0th keyfilepath if using 0th TestMiner
+		th.KeyFile(fixtures.KeyFilePaths()[0]),
+		th.WithMiner(fixtures.TestMiners[0])).Start()
 	defer targetDaemon.ShutdownSuccess()
 
 	daemonTestWithPaymentChannel(t, payer, target, amt, eol, func(d *th.TestDaemon, channelID *types.ChannelID) {
@@ -336,23 +344,27 @@ func TestPaymentChannelExtendSuccess(t *testing.T) {
 	})
 }
 
-func daemonTestWithPaymentChannel(t *testing.T, payerAddress *address.Address, targetAddress *address.Address, fundsToLock *types.AttoFIL, eol *types.BlockHeight, f func(*th.TestDaemon, *types.ChannelID)) {
+func daemonTestWithPaymentChannel(t *testing.T, payerAddress *address.Address, targetAddress *address.Address,
+	fundsToLock *types.AttoFIL, eol *types.BlockHeight, f func(*th.TestDaemon, *types.ChannelID)) {
 	assert := assert.New(t)
+	require := require.New(t)
 
 	d := th.NewDaemon(
 		t,
+		// must include 0th keyfilepath with TestMiner 0
 		th.WithMiner(fixtures.TestMiners[0]),
+		th.KeyFile(fixtures.KeyFilePaths()[0]),
 		th.KeyFile(fixtures.KeyFilePaths()[2]),
 	).Start()
 	defer d.ShutdownSuccess()
 
 	args := []string{"paych", "create"}
-	args = append(args, "--from", payerAddress.String(), "--price", "0", "--limit", "300")
+	args = append(args, "--from", payerAddress.String(), "--gas-price", "0", "--gas-limit", "300")
 	args = append(args, targetAddress.String(), fundsToLock.String(), eol.String())
 
 	paymentChannelCmd := d.RunSuccess(args...)
 	messageCid, err := cid.Parse(strings.Trim(paymentChannelCmd.ReadStdout(), "\n"))
-	require.NoError(t, err)
+	require.NoError(err)
 
 	var wg sync.WaitGroup
 
@@ -410,7 +422,7 @@ func mustExtendChannel(t *testing.T, d *th.TestDaemon, channelID *types.ChannelI
 	require := require.New(t)
 
 	args := []string{"paych", "extend"}
-	args = append(args, "--from", payerAddress.String(), "--price", "0", "--limit", "300")
+	args = append(args, "--from", payerAddress.String(), "--gas-price", "0", "--gas-limit", "300")
 	args = append(args, channelID.String(), amount.String(), eol.String())
 
 	redeemCmd := d.RunSuccess(args...)
@@ -440,7 +452,7 @@ func mustRedeemVoucher(t *testing.T, d *th.TestDaemon, voucher string, targetAdd
 	require := require.New(t)
 
 	args := []string{"paych", "redeem", voucher}
-	args = append(args, "--from", targetAddress.String(), "--price", "0", "--limit", "300")
+	args = append(args, "--from", targetAddress.String(), "--gas-price", "0", "--gas-limit", "300")
 
 	redeemCmd := d.RunSuccess(args...)
 	messageCid, err := cid.Parse(strings.Trim(redeemCmd.ReadStdout(), "\n"))
@@ -469,7 +481,7 @@ func mustCloseChannel(t *testing.T, d *th.TestDaemon, voucher paymentbroker.Paym
 	require := require.New(t)
 
 	args := []string{"paych", "close", mustEncodeVoucherStr(t, voucher)}
-	args = append(args, "--from", targetAddress.String(), "--price", "0", "--limit", "300")
+	args = append(args, "--from", targetAddress.String(), "--gas-price", "0", "--gas-limit", "300")
 
 	redeemCmd := d.RunSuccess(args...)
 	messageCid, err := cid.Parse(strings.Trim(redeemCmd.ReadStdout(), "\n"))
@@ -498,7 +510,7 @@ func mustReclaimChannel(t *testing.T, d *th.TestDaemon, channelID *types.Channel
 	require := require.New(t)
 
 	args := []string{"paych", "reclaim", channelID.String()}
-	args = append(args, "--from", payerAddress.String(), "--price", "0", "--limit", "300")
+	args = append(args, "--from", payerAddress.String(), "--gas-price", "0", "--gas-limit", "300")
 
 	reclaimCmd := d.RunSuccess(args...)
 	messageCid, err := cid.Parse(strings.Trim(reclaimCmd.ReadStdout(), "\n"))

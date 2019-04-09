@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	"gx/ipfs/QmVmDhyTTUcQXFD1rRQ64fGLMSAoaQvNH3hwuaCFAPq2hy/errors"
+	"github.com/pkg/errors"
 
 	"github.com/filecoin-project/go-filecoin/address"
 	"github.com/filecoin-project/go-filecoin/types"
@@ -24,6 +24,8 @@ type Config struct {
 	Mining    *MiningConfig    `json:"mining"`
 	Wallet    *WalletConfig    `json:"wallet"`
 	Heartbeat *HeartbeatConfig `json:"heartbeat"`
+	Net       string           `json:"net"`
+	Metrics   *MetricsConfig   `json:"metrics"`
 }
 
 // APIConfig holds all configuration options related to the api.
@@ -101,14 +103,13 @@ func newDefaultBootstrapConfig() *BootstrapConfig {
 // MiningConfig holds all configuration options related to mining.
 type MiningConfig struct {
 	MinerAddress            address.Address `json:"minerAddress"`
-	BlockSignerAddress      address.Address `json:"blockSignerAddress"`
 	AutoSealIntervalSeconds uint            `json:"autoSealIntervalSeconds"`
 	StoragePrice            *types.AttoFIL  `json:"storagePrice"`
 }
 
 func newDefaultMiningConfig() *MiningConfig {
 	return &MiningConfig{
-		MinerAddress:            address.Address{},
+		MinerAddress:            address.Undef,
 		AutoSealIntervalSeconds: 120,
 		StoragePrice:            types.NewZeroAttoFIL(),
 	}
@@ -121,7 +122,7 @@ type WalletConfig struct {
 
 func newDefaultWalletConfig() *WalletConfig {
 	return &WalletConfig{
-		DefaultAddress: address.Address{},
+		DefaultAddress: address.Undef,
 	}
 }
 
@@ -148,6 +149,24 @@ func newDefaultHeartbeatConfig() *HeartbeatConfig {
 	}
 }
 
+// MetricsConfig holds all configuration options related to node metrics.
+type MetricsConfig struct {
+	// Enabled will enable prometheus metrics when true.
+	PrometheusEnabled bool `json:"prometheusEnabled"`
+	// ReportInterval represents how frequently filecoin will update its prometheus metrics.
+	ReportInterval string `json:"reportInterval"`
+	// PrometheusEndpoint represents the address filecoin will expose prometheus metrics at.
+	PrometheusEndpoint string `json:"prometheusEndpoint"`
+}
+
+func newDefaultMetricsConfig() *MetricsConfig {
+	return &MetricsConfig{
+		PrometheusEnabled:  false,
+		ReportInterval:     "5s",
+		PrometheusEndpoint: "/ip4/0.0.0.0/tcp/9400",
+	}
+}
+
 // NewDefaultConfig returns a config object with all the fields filled out to
 // their default values
 func NewDefaultConfig() *Config {
@@ -159,6 +178,8 @@ func NewDefaultConfig() *Config {
 		Mining:    newDefaultMiningConfig(),
 		Wallet:    newDefaultWalletConfig(),
 		Heartbeat: newDefaultHeartbeatConfig(),
+		Net:       "",
+		Metrics:   newDefaultMetricsConfig(),
 	}
 }
 

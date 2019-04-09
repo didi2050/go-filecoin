@@ -5,7 +5,7 @@ import (
 	"math/big"
 	"testing"
 
-	peer "gx/ipfs/QmTu65MVbemtUxJEWgsTtzv9Zv9P8rvmqNA4eG9TrTRGYc/go-libp2p-peer"
+	peer "github.com/libp2p/go-libp2p-peer"
 
 	"github.com/filecoin-project/go-filecoin/actor"
 	"github.com/filecoin-project/go-filecoin/actor/builtin"
@@ -19,8 +19,8 @@ import (
 	"github.com/filecoin-project/go-filecoin/types"
 	"github.com/filecoin-project/go-filecoin/vm"
 
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/assert"
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func createTestMiner(assert *assert.Assertions, st state.Tree, vms vm.StorageMap, minerOwnerAddr address.Address, key []byte, pid peer.ID) address.Address {
@@ -58,7 +58,7 @@ func TestAskFunctions(t *testing.T) {
 
 	st, vms := core.CreateStorages(ctx, t)
 
-	minerAddr := createTestMiner(assert, st, vms, address.TestAddress, []byte{}, th.RequireRandomPeerID())
+	minerAddr := createTestMiner(assert, st, vms, address.TestAddress, []byte("abcd123"), th.RequireRandomPeerID(require))
 
 	// make an ask, and then make sure it all looks good
 	pdata := actor.MustConvertParams(types.NewAttoFILFromFIL(5), big.NewInt(1500))
@@ -122,13 +122,14 @@ func TestAskFunctions(t *testing.T) {
 
 func TestGetKey(t *testing.T) {
 	assert := assert.New(t)
+	require := require.New(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	st, vms := core.CreateStorages(ctx, t)
 
 	signature := []byte("my public key")
-	minerAddr := createTestMiner(assert, st, vms, address.TestAddress, signature, th.RequireRandomPeerID())
+	minerAddr := createTestMiner(assert, st, vms, address.TestAddress, signature, th.RequireRandomPeerID(require))
 
 	// retrieve key
 	result := callQueryMethodSuccess("getKey", ctx, t, st, vms, address.TestAddress, minerAddr)
@@ -137,7 +138,8 @@ func TestGetKey(t *testing.T) {
 
 func TestCBOREncodeState(t *testing.T) {
 	assert := assert.New(t)
-	state := NewState(address.TestAddress, []byte{}, big.NewInt(1), th.RequireRandomPeerID(), types.NewZeroAttoFIL())
+	require := require.New(t)
+	state := NewState(address.TestAddress, []byte{}, big.NewInt(1), th.RequireRandomPeerID(require), types.NewZeroAttoFIL())
 
 	state.SectorCommitments["1"] = types.Commitments{
 		CommD:     proofs.CommD{},
@@ -159,7 +161,7 @@ func TestPeerIdGetterAndSetter(t *testing.T) {
 
 		st, vms := core.CreateStorages(ctx, t)
 
-		origPid := th.RequireRandomPeerID()
+		origPid := th.RequireRandomPeerID(require)
 		minerAddr := createTestMiner(assert.New(t), st, vms, address.TestAddress, []byte("my public key"), origPid)
 
 		// retrieve peer ID
@@ -170,7 +172,7 @@ func TestPeerIdGetterAndSetter(t *testing.T) {
 		require.Equal(peer.IDB58Encode(origPid), peer.IDB58Encode(pid))
 
 		// update peer ID
-		newPid := th.RequireRandomPeerID()
+		newPid := th.RequireRandomPeerID(require)
 		updatePeerIdSuccess(ctx, t, st, vms, address.TestAddress, minerAddr, newPid)
 
 		// retrieve peer ID
@@ -188,7 +190,7 @@ func TestPeerIdGetterAndSetter(t *testing.T) {
 
 		st, vms := core.CreateStorages(ctx, t)
 
-		minerAddr := createTestMiner(assert.New(t), st, vms, address.TestAddress, []byte("other public key"), th.RequireRandomPeerID())
+		minerAddr := createTestMiner(assert.New(t), st, vms, address.TestAddress, []byte("other public key"), th.RequireRandomPeerID(require))
 
 		// update peer ID and expect authorization failure (TestAddress2 doesn't owner miner)
 		updatePeerIdMsg := types.NewMessage(
@@ -197,7 +199,7 @@ func TestPeerIdGetterAndSetter(t *testing.T) {
 			core.MustGetNonce(st, address.TestAddress2),
 			types.NewAttoFILFromFIL(0),
 			"updatePeerID",
-			actor.MustConvertParams(th.RequireRandomPeerID()))
+			actor.MustConvertParams(th.RequireRandomPeerID(require)))
 
 		applyMsgResult, err := th.ApplyTestMessage(st, vms, updatePeerIdMsg, types.NewBlockHeight(0))
 		require.NoError(err)
@@ -217,7 +219,7 @@ func TestMinerGetPledge(t *testing.T) {
 		st, vms := core.CreateStorages(ctx, t)
 
 		minerAddr := createTestMinerWith(120, 240, assert.New(t), st, vms, address.TestAddress,
-			[]byte("my public key"), th.RequireRandomPeerID())
+			[]byte("my public key"), th.RequireRandomPeerID(require))
 
 		// retrieve power (trivial result for no proven sectors)
 		result := callQueryMethodSuccess("getPledge", ctx, t, st, vms, address.TestAddress, minerAddr)[0][0]
@@ -237,7 +239,7 @@ func TestMinerGetPower(t *testing.T) {
 		st, vms := core.CreateStorages(ctx, t)
 
 		minerAddr := createTestMinerWith(120, 240, assert.New(t), st, vms, address.TestAddress,
-			[]byte("my public key"), th.RequireRandomPeerID())
+			[]byte("my public key"), th.RequireRandomPeerID(require))
 
 		// retrieve power (trivial result for no proven sectors)
 		result := callQueryMethodSuccess("getPower", ctx, t, st, vms, address.TestAddress, minerAddr)
@@ -279,27 +281,27 @@ func TestMinerCommitSector(t *testing.T) {
 	ctx := context.Background()
 	st, vms := core.CreateStorages(ctx, t)
 
-	origPid := th.RequireRandomPeerID()
+	origPid := th.RequireRandomPeerID(require)
 	minerAddr := createTestMiner(assert.New(t), st, vms, address.TestAddress, []byte("my public key"), origPid)
 
 	commR := th.MakeCommitment()
 	commRStar := th.MakeCommitment()
 	commD := th.MakeCommitment()
 
-	res, err := th.CreateAndApplyTestMessage(t, st, vms, minerAddr, 0, 3, "commitSector", uint64(1), commD, commR, commRStar, th.MakeRandomBytes(int(proofs.SealBytesLen)))
+	res, err := th.CreateAndApplyTestMessage(t, st, vms, minerAddr, 0, 3, "commitSector", nil, uint64(1), commD, commR, commRStar, th.MakeRandomBytes(int(proofs.SealBytesLen)))
 	require.NoError(err)
 	require.NoError(res.ExecutionError)
 	require.Equal(uint8(0), res.Receipt.ExitCode)
 
 	// check that the proving period matches
-	res, err = th.CreateAndApplyTestMessage(t, st, vms, minerAddr, 0, 3, "getProvingPeriodStart")
+	res, err = th.CreateAndApplyTestMessage(t, st, vms, minerAddr, 0, 3, "getProvingPeriodStart", nil)
 	require.NoError(err)
 	require.NoError(res.ExecutionError)
 	// blockheight was 3
 	require.Equal(types.NewBlockHeight(3), types.NewBlockHeightFromBytes(res.Receipt.Return[0]))
 
 	// fail because commR already exists
-	res, err = th.CreateAndApplyTestMessage(t, st, vms, minerAddr, 0, 4, "commitSector", uint64(1), commD, commR, commRStar, th.MakeRandomBytes(int(proofs.SealBytesLen)))
+	res, err = th.CreateAndApplyTestMessage(t, st, vms, minerAddr, 0, 4, "commitSector", nil, uint64(1), commD, commR, commRStar, th.MakeRandomBytes(int(proofs.SealBytesLen)))
 	require.NoError(err)
 	require.EqualError(res.ExecutionError, "sector already committed")
 	require.Equal(uint8(0x23), res.Receipt.ExitCode)
@@ -310,37 +312,39 @@ func TestMinerSubmitPoSt(t *testing.T) {
 	ctx := context.Background()
 	st, vms := core.CreateStorages(ctx, t)
 
-	origPid := th.RequireRandomPeerID()
+	ancestors := th.RequireTipSetChain(t, 10)
+
+	origPid := th.RequireRandomPeerID(require)
 	minerAddr := createTestMiner(assert.New(t), st, vms, address.TestAddress, []byte("my public key"), origPid)
 
 	// add a sector
-	res, err := th.CreateAndApplyTestMessage(t, st, vms, minerAddr, 0, 3, "commitSector", uint64(1), th.MakeCommitment(), th.MakeCommitment(), th.MakeCommitment(), th.MakeRandomBytes(int(proofs.SealBytesLen)))
+	res, err := th.CreateAndApplyTestMessage(t, st, vms, minerAddr, 0, 3, "commitSector", ancestors, uint64(1), th.MakeCommitment(), th.MakeCommitment(), th.MakeCommitment(), th.MakeRandomBytes(int(proofs.SealBytesLen)))
 	require.NoError(err)
 	require.NoError(res.ExecutionError)
 	require.Equal(uint8(0), res.Receipt.ExitCode)
 
 	// add another sector
-	res, err = th.CreateAndApplyTestMessage(t, st, vms, minerAddr, 0, 4, "commitSector", uint64(2), th.MakeCommitment(), th.MakeCommitment(), th.MakeCommitment(), th.MakeRandomBytes(int(proofs.SealBytesLen)))
+	res, err = th.CreateAndApplyTestMessage(t, st, vms, minerAddr, 0, 4, "commitSector", ancestors, uint64(2), th.MakeCommitment(), th.MakeCommitment(), th.MakeCommitment(), th.MakeRandomBytes(int(proofs.SealBytesLen)))
 	require.NoError(err)
 	require.NoError(res.ExecutionError)
 	require.Equal(uint8(0), res.Receipt.ExitCode)
 
 	// submit post
 	proof := th.MakeRandomPoSTProofForTest()
-	res, err = th.CreateAndApplyTestMessage(t, st, vms, minerAddr, 0, 8, "submitPoSt", proof[:])
+	res, err = th.CreateAndApplyTestMessage(t, st, vms, minerAddr, 0, 8, "submitPoSt", ancestors, []proofs.PoStProof{proof})
 	require.NoError(err)
 	require.NoError(res.ExecutionError)
 	require.Equal(uint8(0), res.Receipt.ExitCode)
 
 	// check that the proving period is now the next one
-	res, err = th.CreateAndApplyTestMessage(t, st, vms, minerAddr, 0, 9, "getProvingPeriodStart")
+	res, err = th.CreateAndApplyTestMessage(t, st, vms, minerAddr, 0, 9, "getProvingPeriodStart", ancestors)
 	require.NoError(err)
 	require.NoError(res.ExecutionError)
 	require.Equal(types.NewBlockHeightFromBytes(res.Receipt.Return[0]), types.NewBlockHeight(20003))
 
 	// fail to submit inside the proving period
 	proof = th.MakeRandomPoSTProofForTest()
-	res, err = th.CreateAndApplyTestMessage(t, st, vms, minerAddr, 0, 40008, "submitPoSt", proof[:])
+	res, err = th.CreateAndApplyTestMessage(t, st, vms, minerAddr, 0, 40008, "submitPoSt", ancestors, []proofs.PoStProof{proof})
 	require.NoError(err)
 	require.EqualError(res.ExecutionError, "submitted PoSt late, need to pay a fee")
 }

@@ -4,15 +4,16 @@ import (
 	"context"
 	"fmt"
 
-	"gx/ipfs/QmNf3wujpV2Y7Lnj2hy2UrmuX8bhMDStRHbnSLh7Ypf36h/go-hamt-ipld"
-	"gx/ipfs/QmR8BauakNcBa3RbE4nbQu76PDiJgoQgz8AJdhJuiU4TAw/go-cid"
-	bstore "gx/ipfs/QmRu7tiRnFk9mMPpVECQTBQJqXtmG132jJxA1w9A7TtpBz/go-ipfs-blockstore"
-	"gx/ipfs/QmVmDhyTTUcQXFD1rRQ64fGLMSAoaQvNH3hwuaCFAPq2hy/errors"
-	logging "gx/ipfs/QmbkT7eMTyXfpeyB3ZMxxcxg7XH8t6uXp49jqzz4HB7BGF/go-log"
+	"github.com/ipfs/go-cid"
+	"github.com/ipfs/go-hamt-ipld"
+	bstore "github.com/ipfs/go-ipfs-blockstore"
+	logging "github.com/ipfs/go-log"
+	"github.com/pkg/errors"
 
 	"github.com/filecoin-project/go-filecoin/actor/builtin"
 	"github.com/filecoin-project/go-filecoin/chain"
 	"github.com/filecoin-project/go-filecoin/consensus"
+	"github.com/filecoin-project/go-filecoin/sampling"
 	"github.com/filecoin-project/go-filecoin/state"
 	"github.com/filecoin-project/go-filecoin/types"
 	"github.com/filecoin-project/go-filecoin/vm"
@@ -27,6 +28,13 @@ type Waiter struct {
 	bs          bstore.Blockstore
 }
 
+// ChainMessage is an on-chain message with its block and receipt.
+type ChainMessage struct {
+	Message *types.SignedMessage
+	Block   *types.Block
+	Receipt *types.MessageReceipt
+}
+
 // NewWaiter returns a new Waiter.
 func NewWaiter(chainStore chain.ReadStore, bs bstore.Blockstore, cst *hamt.CborIpldStore) *Waiter {
 	return &Waiter{
@@ -34,6 +42,16 @@ func NewWaiter(chainStore chain.ReadStore, bs bstore.Blockstore, cst *hamt.CborI
 		cst:         cst,
 		bs:          bs,
 	}
+}
+
+// Find searches the blockchain history for a message (but doesn't wait).
+func (w *Waiter) Find(ctx context.Context, msgCid cid.Cid) (*ChainMessage, bool, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// Historical blocks
+	historyCh := w.chainReader.BlockHistory(ctx, w.chainReader.Head())
+	return w.waitForMessage(ctx, historyCh, msgCid)
 }
 
 // Wait invokes the callback when a message with the given cid appears on chain.
@@ -78,39 +96,48 @@ func (w *Waiter) Wait(ctx context.Context, msgCid cid.Cid, cb func(*types.Block,
 		}
 	}()
 
+	chainMsg, found, err := w.waitForMessage(ctx, ch, msgCid)
+	if found {
+		return cb(chainMsg.Block, chainMsg.Message, chainMsg.Receipt)
+	}
+	return err
+}
+
+// waitForMessage looks for a message CID in a channel of tipsets and returns the message, block and receipt,
+// when it is found. Reads until the channel is closed or the context done.
+// Returns the found message/block (or nil if the channel closed without finding it), whether it was found, or an error.
+func (w *Waiter) waitForMessage(ctx context.Context, ch <-chan interface{}, msgCid cid.Cid) (*ChainMessage, bool, error) {
 	for {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return nil, false, ctx.Err()
 		case raw, more := <-ch:
 			if !more {
-				return errors.New("wait input channel closed without finding message")
+				return nil, false, nil
 			}
-			switch raw.(type) { // nolint: staticcheck
+			switch raw := raw.(type) {
 			case error:
 				e := raw.(error)
 				log.Errorf("Waiter.Wait: %s", e)
-				return e
+				return nil, false, e
 			case types.TipSet:
-				ts := raw.(types.TipSet)
-				for _, blk := range ts {
+				for _, blk := range raw {
 					for _, msg := range blk.Messages {
 						c, err := msg.Cid()
 						if err != nil {
-							log.Errorf("Waiter.Wait: %s", err)
-							return err
+							return nil, false, err
 						}
 						if c.Equals(msgCid) {
-							recpt, err := w.receiptFromTipSet(ctx, msgCid, ts)
+							recpt, err := w.receiptFromTipSet(ctx, msgCid, raw)
 							if err != nil {
-								return errors.Wrap(err, "error retrieving receipt from tipset")
+								return nil, false, errors.Wrap(err, "error retrieving receipt from tipset")
 							}
-							return cb(blk, msg, recpt)
+							return &ChainMessage{msg, blk, recpt}, true, nil
 						}
 					}
 				}
 			default:
-				return fmt.Errorf("unexpected type in channel: %T", raw)
+				return nil, false, fmt.Errorf("unexpected type in channel: %T", raw)
 			}
 		}
 	}
@@ -158,7 +185,7 @@ func (w *Waiter) receiptFromTipSet(ctx context.Context, msgCid cid.Cid, ts types
 		return nil, err
 	}
 	tsBlockHeight := types.NewBlockHeight(tsHeight)
-	ancestors, err := chain.GetRecentAncestors(ctx, tsas.TipSet, w.chainReader, tsBlockHeight, consensus.AncestorRoundsNeeded, consensus.LookBackParameter)
+	ancestors, err := chain.GetRecentAncestors(ctx, tsas.TipSet, w.chainReader, tsBlockHeight, consensus.AncestorRoundsNeeded, sampling.LookbackParameter)
 	if err != nil {
 		return nil, err
 	}

@@ -5,9 +5,9 @@ import (
 	"strings"
 	"sync"
 
-	ds "gx/ipfs/QmUadX5EcvrBmxAV9sE7wUWtWSqxns5K84qKJBixmcT1w9/go-datastore"
-	dsq "gx/ipfs/QmUadX5EcvrBmxAV9sE7wUWtWSqxns5K84qKJBixmcT1w9/go-datastore/query"
-	"gx/ipfs/QmVmDhyTTUcQXFD1rRQ64fGLMSAoaQvNH3hwuaCFAPq2hy/errors"
+	ds "github.com/ipfs/go-datastore"
+	dsq "github.com/ipfs/go-datastore/query"
+	"github.com/pkg/errors"
 
 	"github.com/filecoin-project/go-filecoin/address"
 	"github.com/filecoin-project/go-filecoin/crypto"
@@ -98,7 +98,7 @@ func (backend *DSBackend) HasAddress(addr address.Address) bool {
 func (backend *DSBackend) NewAddress() (address.Address, error) {
 	prv, err := crypto.GenerateKey()
 	if err != nil {
-		return address.Address{}, err
+		return address.Undef, err
 	}
 
 	// TODO: maybe the above call should just return a keyinfo?
@@ -108,7 +108,7 @@ func (backend *DSBackend) NewAddress() (address.Address, error) {
 	}
 
 	if err := backend.putKeyInfo(ki); err != nil {
-		return address.Address{}, err
+		return address.Undef, err
 	}
 
 	return ki.Address()

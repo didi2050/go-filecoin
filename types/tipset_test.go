@@ -4,11 +4,11 @@ import (
 	"sort"
 	"testing"
 
-	"gx/ipfs/QmR8BauakNcBa3RbE4nbQu76PDiJgoQgz8AJdhJuiU4TAw/go-cid"
+	"github.com/ipfs/go-cid"
 
 	"github.com/filecoin-project/go-filecoin/address"
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/assert"
-	"gx/ipfs/QmPVkJMTeRC6iBByPWdrRkD3BE5UXsj5HPzb4kPqL186mS/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -21,8 +21,7 @@ func init() {
 	cid1 = cidGetter()
 	cid2 = cidGetter()
 
-	ki := MustGenerateKeyInfo(2, GenerateKeyInfoSeed())
-	mockSignerForTest = NewMockSigner(ki)
+	mockSignerForTest, _ = NewMockSignersAndKeyInfo(2)
 }
 
 // requireTipSetAdd adds a block to the provided tipset and requires that this
@@ -264,7 +263,7 @@ func TestTipSetEquals(t *testing.T) {
 
 	ts2 := RequireNewTipSet(require, b1, b2)
 	assert.True(!ts2.Equals(ts))
-	ts2.AddBlock(b3)
+	assert.NoError(ts2.AddBlock(b3))
 	assert.True(ts.Equals(ts2))
 }
 
